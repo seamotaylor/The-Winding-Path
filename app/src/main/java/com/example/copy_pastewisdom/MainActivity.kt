@@ -4,6 +4,7 @@ package com.example.copy_pastewisdom
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.TimePickerDialog
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -22,6 +23,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -30,6 +33,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,7 +44,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -78,6 +81,8 @@ object QuoteRepository {
     private const val PREFS_NAME = "quote_prefs"
     private const val KEY_CSV = "cached_quotes_csv"
     private const val KEY_NOTIFS_ENABLED = "notifs_enabled"
+    private const val KEY_NOTIF_HOUR = "notif_hour"
+    private const val KEY_NOTIF_MINUTE = "notif_minute"
 
     fun getQuotesFromCache(context: Context): List<QuoteItem> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -111,6 +116,22 @@ object QuoteRepository {
     fun isNotificationsEnabled(context: Context): Boolean {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getBoolean(KEY_NOTIFS_ENABLED, false)
+    }
+
+    fun setNotificationTime(context: Context, hour: Int, minute: Int) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_NOTIF_HOUR, hour)
+            .putInt(KEY_NOTIF_MINUTE, minute)
+            .apply()
+    }
+
+    fun getNotificationTime(context: Context): Pair<Int, Int> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return Pair(
+            prefs.getInt(KEY_NOTIF_HOUR, 8),
+            prefs.getInt(KEY_NOTIF_MINUTE, 0)
+        )
     }
 }
 
@@ -161,15 +182,16 @@ object NotificationScheduler {
     private const val WORK_NAME = "DailyQuoteWork"
 
     fun scheduleDailyNotification(context: Context) {
+        val (hour, minute) = QuoteRepository.getNotificationTime(context)
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
             .build()
 
-        // Calculate delay until 8:00 AM
+        // Calculate delay until selected time
         val currentDate = Calendar.getInstance()
         val dueDate = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 8)
-            set(Calendar.MINUTE, 0)
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, minute)
             set(Calendar.SECOND, 0)
         }
         if (dueDate.before(currentDate)) {
@@ -218,6 +240,9 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
     var notificationsEnabled by remember { 
         mutableStateOf(QuoteRepository.isNotificationsEnabled(context)) 
     }
+    var notificationTime by remember {
+        mutableStateOf(QuoteRepository.getNotificationTime(context))
+    }
     val scope = rememberCoroutineScope()
 
     // Permission Launcher
@@ -230,6 +255,21 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
             NotificationScheduler.scheduleDailyNotification(context)
         }
     }
+
+    // Time Picker Dialog
+    val timePickerDialog = TimePickerDialog(
+        context,
+        { _, hour, minute ->
+            notificationTime = Pair(hour, minute)
+            QuoteRepository.setNotificationTime(context, hour, minute)
+            if (notificationsEnabled) {
+                NotificationScheduler.scheduleDailyNotification(context)
+            }
+        },
+        notificationTime.first,
+        notificationTime.second,
+        false // 24 hour mode false -> AM/PM
+    )
 
     suspend fun fetchQuotes() {
         uiState = QuoteState.Loading
@@ -278,6 +318,13 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
                 }
             }
         )
+
+        // Time Selection Section
+        TimeSettingsRow(
+            hour = notificationTime.first,
+            minute = notificationTime.second,
+            onClick = { timePickerDialog.show() }
+        )
         
         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
@@ -298,7 +345,7 @@ fun NotificationSettingsRow(enabled: Boolean, onToggle: (Boolean) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -311,10 +358,40 @@ fun NotificationSettingsRow(enabled: Boolean, onToggle: (Boolean) -> Unit) {
 }
 
 @Composable
+fun TimeSettingsRow(hour: Int, minute: Int, onClick: () -> Unit) {
+    val amPm = if (hour < 12) "AM" else "PM"
+    val displayHour = when {
+        hour == 0 -> 12
+        hour > 12 -> hour - 12
+        else -> hour
+    }
+    val displayMinute = minute.toString().padStart(2, '0')
+    val timeString = "$displayHour:$displayMinute $amPm"
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column {
+            Text(text = "Notification Time", style = MaterialTheme.typography.titleSmall)
+            Text(text = "Currently set to $timeString", style = MaterialTheme.typography.bodySmall)
+        }
+        Button(onClick = onClick) {
+            Text("Set Time")
+        }
+    }
+}
+
+@Composable
 fun QuoteDisplay(quotes: List<QuoteItem>) {
     val dayOfYear = Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
-    val quoteIndex = dayOfYear % quotes.size
-    val currentItem = quotes[quoteIndex]
+    val dailyIndex = dayOfYear % quotes.size
+    
+    var currentItem by remember { mutableStateOf(quotes[dailyIndex]) }
+    val isDaily = currentItem == quotes[dailyIndex]
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -328,12 +405,12 @@ fun QuoteDisplay(quotes: List<QuoteItem>) {
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = "TODAY'S WISDOM",
+                text = if (isDaily) "TODAY'S WISDOM" else "RANDOM WISDOM",
                 style = MaterialTheme.typography.labelLarge.copy(
                     letterSpacing = 2.sp,
                     fontWeight = FontWeight.Black
                 ),
-                color = MaterialTheme.colorScheme.primary,
+                color = if (isDaily) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.padding(bottom = 24.dp)
             )
             
@@ -362,6 +439,22 @@ fun QuoteDisplay(quotes: List<QuoteItem>) {
                 ),
                 textAlign = TextAlign.Center
             )
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            Button(onClick = {
+                currentItem = quotes.random()
+            }) {
+                Text("Next Random Quote")
+            }
+            
+            if (!isDaily) {
+                TextButton(onClick = {
+                    currentItem = quotes[dailyIndex]
+                }) {
+                    Text("Back to Today's Quote", style = MaterialTheme.typography.bodySmall)
+                }
+            }
         }
     }
 }
