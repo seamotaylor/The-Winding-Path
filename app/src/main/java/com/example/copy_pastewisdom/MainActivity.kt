@@ -424,6 +424,10 @@ fun QuoteDisplay(
     var showAboutDialog by remember { mutableStateOf(false) }
     val isDaily = currentItem == quotes[dailyIndex]
 
+    val authorAbout = remember(currentItem.author, quotes) {
+        quotes.find { it.author == currentItem.author && it.about.isNotBlank() }?.about ?: ""
+    }
+
     LaunchedEffect(externalSelectedQuote) {
         externalSelectedQuote?.let { currentItem = it }
     }
@@ -432,7 +436,7 @@ fun QuoteDisplay(
         AlertDialog(
             onDismissRequest = { showAboutDialog = false },
             title = { Text(text = "About ${currentItem.author}") },
-            text = { Text(text = currentItem.about) },
+            text = { Text(text = authorAbout) },
             confirmButton = {
                 TextButton(onClick = { showAboutDialog = false }) {
                     Text("Close")
@@ -449,71 +453,87 @@ fun QuoteDisplay(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = if (isDaily) "TODAY'S WISDOM" else "RANDOM WISDOM",
-                style = MaterialTheme.typography.labelLarge.copy(
-                    letterSpacing = 2.sp,
-                    fontWeight = FontWeight.Black
-                ),
-                color = if (isDaily) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.padding(bottom = 24.dp)
-            )
-            
-            // Independently styled Quote
-            Text(
-                text = "\"${currentItem.quote}\"",
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontStyle = FontStyle.Italic,
-                    lineHeight = 40.sp,
-                    fontSize = 28.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                ),
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Independently styled Author
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Quote Content Section (Centered in the remaining space)
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
                 Text(
-                    text = "— ${currentItem.author}",
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        fontWeight = FontWeight.Light,
-                        fontSize = 18.sp,
-                        color = Color.Gray,
-                        letterSpacing = 1.sp
+                    text = if (isDaily) "TODAY'S WISDOM" else "RANDOM WISDOM",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        letterSpacing = 2.sp,
+                        fontWeight = FontWeight.Black
+                    ),
+                    color = if (isDaily) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(bottom = 24.dp)
+                )
+
+                // Independently styled Quote
+                Text(
+                    text = "\"${currentItem.quote}\"",
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontStyle = FontStyle.Italic,
+                        lineHeight = 40.sp,
+                        fontSize = 28.sp,
+                        color = MaterialTheme.colorScheme.onSurface
                     ),
                     textAlign = TextAlign.Center
                 )
-                if (currentItem.about.isNotBlank()) {
-                    TextButton(onClick = { showAboutDialog = true }) {
-                        Text("About", style = MaterialTheme.typography.bodySmall)
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Independently styled Author
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "— ${currentItem.author}",
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontWeight = FontWeight.Light,
+                            fontSize = 18.sp,
+                            color = Color.Gray,
+                            letterSpacing = 1.sp
+                        ),
+                        textAlign = TextAlign.Center
+                    )
+                    if (authorAbout.isNotBlank()) {
+                        TextButton(onClick = { showAboutDialog = true }) {
+                            Text("About", style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(48.dp))
+            // Buttons Section (Stationary at the bottom)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(bottom = 16.dp)
+            ) {
+                // Fixed height container keeps buttons below it from jumping
+                Box(
+                    modifier = Modifier.height(40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!isDaily) {
+                        TextButton(onClick = {
+                            currentItem = quotes[dailyIndex]
+                        }) {
+                            Text("Back to Today's Quote", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
 
-            Button(onClick = {
-                currentItem = quotes.random()
-            }) {
-                Text("Next Random Quote")
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Button(onClick = onBrowseClick) {
-                Text("Browse All Quotes")
-            }
-            
-            if (!isDaily) {
-                TextButton(onClick = {
-                    currentItem = quotes[dailyIndex]
+                Button(onClick = {
+                    currentItem = quotes.random()
                 }) {
-                    Text("Back to Today's Quote", style = MaterialTheme.typography.bodySmall)
+                    Text("Next Random Quote")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Button(onClick = onBrowseClick) {
+                    Text("Browse All Quotes")
                 }
             }
         }
@@ -540,7 +560,7 @@ fun BrowseQuotesView(
     }
 
     val currentAuthorAbout = remember(selectedAuthor, quotes) {
-        quotes.find { it.author == selectedAuthor }?.about ?: ""
+        quotes.find { it.author == selectedAuthor && it.about.isNotBlank() }?.about ?: ""
     }
 
     if (showAboutDialog && selectedAuthor != null) {
