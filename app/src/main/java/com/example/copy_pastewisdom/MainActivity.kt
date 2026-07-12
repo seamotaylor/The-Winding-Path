@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.edit
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -91,8 +92,9 @@ object QuoteRepository {
     }
 
     fun saveQuotesToCache(context: Context, rawData: String) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit().putString(KEY_CSV, rawData).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            putString(KEY_CSV, rawData)
+        }
     }
 
     fun parseCsv(rawData: String): List<QuoteItem> {
@@ -109,8 +111,9 @@ object QuoteRepository {
     }
 
     fun setNotificationsEnabled(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_NOTIFS_ENABLED, enabled).apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            putBoolean(KEY_NOTIFS_ENABLED, enabled)
+        }
     }
 
     fun isNotificationsEnabled(context: Context): Boolean {
@@ -119,11 +122,10 @@ object QuoteRepository {
     }
 
     fun setNotificationTime(context: Context, hour: Int, minute: Int) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putInt(KEY_NOTIF_HOUR, hour)
-            .putInt(KEY_NOTIF_MINUTE, minute)
-            .apply()
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            putInt(KEY_NOTIF_HOUR, hour)
+            putInt(KEY_NOTIF_MINUTE, minute)
+        }
     }
 
     fun getNotificationTime(context: Context): Pair<Int, Int> {
@@ -243,6 +245,8 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
     var notificationTime by remember {
         mutableStateOf(QuoteRepository.getNotificationTime(context))
     }
+    var isBrowsing by remember { mutableStateOf(false) }
+    var browseSelectedItem by remember { mutableStateOf<QuoteItem?>(null) }
     val scope = rememberCoroutineScope()
 
     // Permission Launcher
@@ -273,23 +277,23 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
 
     suspend fun fetchQuotes() {
         uiState = QuoteState.Loading
-        try {
+        uiState = try {
             val url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQbAfs-rGaKSvL5F8RZDLr90glOyKsKsTZsDYToO1QcqfpVIIr5XhBAvtuCtJJqz-ZwG191quZMRnwp/pub?gid=0&single=true&output=csv"
             val rawData = withContext(Dispatchers.IO) { URL(url).readText() }
             val quotes = QuoteRepository.parseCsv(rawData)
             
             if (quotes.isNotEmpty()) {
                 QuoteRepository.saveQuotesToCache(context, rawData)
-                uiState = QuoteState.Success(quotes)
+                QuoteState.Success(quotes)
             } else {
                 throw Exception("No quotes found")
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             val cached = QuoteRepository.getQuotesFromCache(context)
             if (cached.isNotEmpty()) {
-                uiState = QuoteState.Success(cached)
+                QuoteState.Success(cached)
             } else {
-                uiState = QuoteState.Error("Network error and no cache available.")
+                QuoteState.Error("Network error and no cache available.")
             }
         }
     }
@@ -331,7 +335,24 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
             when (val state = uiState) {
                 is QuoteState.Loading -> CircularProgressIndicator()
-                is QuoteState.Success -> QuoteDisplay(quotes = state.quotes)
+                is QuoteState.Success -> {
+                    if (isBrowsing) {
+                        BrowseQuotesView(
+                            quotes = state.quotes,
+                            onQuoteSelected = { 
+                                browseSelectedItem = it
+                                isBrowsing = false 
+                            },
+                            onBack = { isBrowsing = false }
+                        )
+                    } else {
+                        QuoteDisplay(
+                            quotes = state.quotes,
+                            externalSelectedQuote = browseSelectedItem,
+                            onBrowseClick = { isBrowsing = true }
+                        )
+                    }
+                }
                 is QuoteState.Error -> ErrorView(message = state.message, onRetry = {
                     scope.launch { fetchQuotes() }
                 })
@@ -386,12 +407,20 @@ fun TimeSettingsRow(hour: Int, minute: Int, onClick: () -> Unit) {
 }
 
 @Composable
-fun QuoteDisplay(quotes: List<QuoteItem>) {
+fun QuoteDisplay(
+    quotes: List<QuoteItem>,
+    externalSelectedQuote: QuoteItem? = null,
+    onBrowseClick: () -> Unit
+) {
     val dayOfYear = Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
     val dailyIndex = dayOfYear % quotes.size
     
     var currentItem by remember { mutableStateOf(quotes[dailyIndex]) }
     val isDaily = currentItem == quotes[dailyIndex]
+
+    LaunchedEffect(externalSelectedQuote) {
+        externalSelectedQuote?.let { currentItem = it }
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -447,12 +476,86 @@ fun QuoteDisplay(quotes: List<QuoteItem>) {
             }) {
                 Text("Next Random Quote")
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Button(onClick = onBrowseClick) {
+                Text("Browse All Quotes")
+            }
             
             if (!isDaily) {
                 TextButton(onClick = {
                     currentItem = quotes[dailyIndex]
                 }) {
                     Text("Back to Today's Quote", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BrowseQuotesView(
+    quotes: List<QuoteItem>,
+    onQuoteSelected: (QuoteItem) -> Unit,
+    onBack: () -> Unit
+) {
+    val authors = remember(quotes) { quotes.map { it.author }.distinct().sorted() }
+    var selectedAuthor by remember { mutableStateOf<String?>(null) }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = if (selectedAuthor == null) "Authors" else "Quotes by $selectedAuthor",
+                style = MaterialTheme.typography.headlineSmall
+            )
+            TextButton(onClick = onBack) {
+                Text("Close")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (selectedAuthor == null) {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(authors) { author ->
+                    Surface(
+                        onClick = { selectedAuthor = author },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Text(
+                            text = author,
+                            modifier = Modifier.padding(16.dp),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp))
+                }
+            }
+        } else {
+            TextButton(onClick = { selectedAuthor = null }) {
+                Text("← Back to Authors")
+            }
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                val authorQuotes = quotes.filter { it.author == selectedAuthor }
+                items(authorQuotes) { item ->
+                    Surface(
+                        onClick = { onQuoteSelected(item) },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Text(
+                            text = "\"${item.quote}\"",
+                            modifier = Modifier.padding(16.dp),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
             }
         }
