@@ -100,7 +100,7 @@ object QuoteRepository {
     }
 
     fun parseCsv(rawData: String): List<QuoteItem> {
-        return rawData.lines()
+        return rawData.lineSequence()
             .drop(1) // Exclude header row
             .filter { it.contains(",") }
             .map { line ->
@@ -109,10 +109,11 @@ object QuoteRepository {
                 QuoteItem(
                     author = parts.getOrNull(0)?.trim()?.removeSurrounding("\"") ?: "Unknown",
                     about = parts.getOrNull(1)?.trim()?.removeSurrounding("\"") ?: "",
-                    quote = parts.getOrNull(2)?.trim()?.removeSurrounding("\"") ?: ""
+                    quote = parts.getOrNull(2)?.trim()?.removeSurrounding("\"") ?: "",
                 )
             }
             .filter { it.quote.isNotBlank() }
+            .toList()
     }
 
     fun setNotificationsEnabled(context: Context, enabled: Boolean) {
@@ -137,7 +138,7 @@ object QuoteRepository {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return Pair(
             prefs.getInt(KEY_NOTIF_HOUR, 8),
-            prefs.getInt(KEY_NOTIF_MINUTE, 0)
+            prefs.getInt(KEY_NOTIF_MINUTE, 0),
         )
     }
 }
@@ -214,7 +215,7 @@ object NotificationScheduler {
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             WORK_NAME,
             ExistingPeriodicWorkPolicy.UPDATE,
-            dailyWorkRequest
+            dailyWorkRequest,
         )
     }
 
@@ -233,7 +234,7 @@ class MainActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     MainScreen(
                         modifier = Modifier.padding(innerPadding),
-                        context = this
+                        context = this,
                     )
                 }
             }
@@ -250,7 +251,7 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
     var notificationTime by remember {
         mutableStateOf(QuoteRepository.getNotificationTime(context))
     }
-    var isBrowsing by remember { mutableStateOf(false) }
+    var isBrowsing by remember { mutableStateOf(value = false) }
     var browseSelectedItem by remember { mutableStateOf<QuoteItem?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -260,7 +261,7 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
     ) { isGranted ->
         if (isGranted) {
             notificationsEnabled = true
-            QuoteRepository.setNotificationsEnabled(context, true)
+            QuoteRepository.setNotificationsEnabled(context, enabled = true)
             NotificationScheduler.scheduleDailyNotification(context)
         }
     }
@@ -309,31 +310,27 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
 
     Column(modifier = modifier.fillMaxSize()) {
         // Notification Toggle Section
-        NotificationSettingsRow(
-            enabled = notificationsEnabled,
-            onToggle = { isChecked ->
-                if (isChecked) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    } else {
-                        notificationsEnabled = true
-                        QuoteRepository.setNotificationsEnabled(context, true)
-                        NotificationScheduler.scheduleDailyNotification(context)
-                    }
+        NotificationSettingsRow(enabled = notificationsEnabled) { isChecked ->
+            if (isChecked) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 } else {
-                    notificationsEnabled = false
-                    QuoteRepository.setNotificationsEnabled(context, false)
-                    NotificationScheduler.cancelDailyNotification(context)
+                    notificationsEnabled = true
+                    QuoteRepository.setNotificationsEnabled(context, enabled = true)
+                    NotificationScheduler.scheduleDailyNotification(context)
                 }
+            } else {
+                notificationsEnabled = false
+                QuoteRepository.setNotificationsEnabled(context, enabled = false)
+                NotificationScheduler.cancelDailyNotification(context)
             }
-        )
+        }
 
         // Time Selection Section
         TimeSettingsRow(
             hour = notificationTime.first,
             minute = notificationTime.second,
-            onClick = { timePickerDialog.show() }
-        )
+        ) { timePickerDialog.show() }
         
         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
@@ -348,8 +345,7 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
                                 browseSelectedItem = it
                                 isBrowsing = false 
                             },
-                            onBack = { isBrowsing = false }
-                        )
+                        ) { isBrowsing = false }
                     } else {
                         QuoteDisplay(
                             quotes = state.quotes,
@@ -358,9 +354,12 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
                         )
                     }
                 }
-                is QuoteState.Error -> ErrorView(message = state.message, onRetry = {
-                    scope.launch { fetchQuotes() }
-                })
+                is QuoteState.Error -> ErrorView(
+                    message = state.message,
+                    onRetry = {
+                        scope.launch { fetchQuotes() }
+                    },
+                )
             }
         }
     }
@@ -417,15 +416,15 @@ fun QuoteDisplay(
     externalSelectedQuote: QuoteItem? = null,
     onBrowseClick: () -> Unit
 ) {
-    val dayOfYear = Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
+    val dayOfYear = Calendar.getInstance()[Calendar.DAY_OF_YEAR]
     val dailyIndex = dayOfYear % quotes.size
     
     var currentItem by remember { mutableStateOf(quotes[dailyIndex]) }
-    var showAboutDialog by remember { mutableStateOf(false) }
+    var showAboutDialog by remember { mutableStateOf(value = false) }
     val isDaily = currentItem == quotes[dailyIndex]
 
     val authorAbout = remember(currentItem.author, quotes) {
-        quotes.find { it.author == currentItem.author && it.about.isNotBlank() }?.about ?: ""
+        quotes.find { (it.author == currentItem.author) && it.about.isNotBlank() }?.about ?: ""
     }
 
     LaunchedEffect(externalSelectedQuote) {
@@ -498,7 +497,9 @@ fun QuoteDisplay(
                         textAlign = TextAlign.Center
                     )
                     if (authorAbout.isNotBlank()) {
-                        TextButton(onClick = { showAboutDialog = true }) {
+                        TextButton(
+                            onClick = { showAboutDialog = true },
+                        ) {
                             Text("About", style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -516,17 +517,21 @@ fun QuoteDisplay(
                     contentAlignment = Alignment.Center
                 ) {
                     if (!isDaily) {
-                        TextButton(onClick = {
-                            currentItem = quotes[dailyIndex]
-                        }) {
+                        TextButton(
+                            onClick = {
+                                currentItem = quotes[dailyIndex]
+                            },
+                        ) {
                             Text("Back to Today's Quote", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
 
-                Button(onClick = {
-                    currentItem = quotes.random()
-                }) {
+                Button(
+                    onClick = {
+                        currentItem = quotes.random()
+                    },
+                ) {
                     Text("Next Random Quote")
                 }
 
@@ -546,9 +551,11 @@ fun BrowseQuotesView(
     onQuoteSelected: (QuoteItem) -> Unit,
     onBack: () -> Unit
 ) {
-    val authors = remember(quotes) { quotes.map { it.author }.distinct().sorted() }
+    val authors = remember(quotes) { 
+        quotes.asSequence().map { it.author }.distinct().sorted().toList() 
+    }
     var selectedAuthor by remember { mutableStateOf<String?>(null) }
-    var showAboutDialog by remember { mutableStateOf(false) }
+    var showAboutDialog by remember { mutableStateOf(value = false) }
 
     // System Back Press Handling
     BackHandler {
@@ -560,10 +567,10 @@ fun BrowseQuotesView(
     }
 
     val currentAuthorAbout = remember(selectedAuthor, quotes) {
-        quotes.find { it.author == selectedAuthor && it.about.isNotBlank() }?.about ?: ""
+        quotes.find { (it.author == selectedAuthor) && it.about.isNotBlank() }?.about ?: ""
     }
 
-    if (showAboutDialog && selectedAuthor != null) {
+    if (showAboutDialog && (selectedAuthor != null)) {
         AlertDialog(
             onDismissRequest = { showAboutDialog = false },
             title = { Text(text = "About $selectedAuthor") },
