@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -34,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -69,7 +71,7 @@ import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
 // --- SECTION 1: DATA MODELS ---
-data class QuoteItem(val author: String, val quote: String)
+data class QuoteItem(val author: String, val about: String, val quote: String)
 
 sealed class QuoteState {
     object Loading : QuoteState()
@@ -99,12 +101,15 @@ object QuoteRepository {
 
     fun parseCsv(rawData: String): List<QuoteItem> {
         return rawData.lines()
+            .drop(1) // Exclude header row
             .filter { it.contains(",") }
             .map { line ->
-                val parts = line.split(",", limit = 2)
+                // Use a regex that only splits by comma if it's not inside double quotes
+                val parts = line.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)".toRegex())
                 QuoteItem(
                     author = parts.getOrNull(0)?.trim()?.removeSurrounding("\"") ?: "Unknown",
-                    quote = parts.getOrNull(1)?.trim()?.removeSurrounding("\"") ?: ""
+                    about = parts.getOrNull(1)?.trim()?.removeSurrounding("\"") ?: "",
+                    quote = parts.getOrNull(2)?.trim()?.removeSurrounding("\"") ?: ""
                 )
             }
             .filter { it.quote.isNotBlank() }
@@ -416,10 +421,24 @@ fun QuoteDisplay(
     val dailyIndex = dayOfYear % quotes.size
     
     var currentItem by remember { mutableStateOf(quotes[dailyIndex]) }
+    var showAboutDialog by remember { mutableStateOf(false) }
     val isDaily = currentItem == quotes[dailyIndex]
 
     LaunchedEffect(externalSelectedQuote) {
         externalSelectedQuote?.let { currentItem = it }
+    }
+
+    if (showAboutDialog) {
+        AlertDialog(
+            onDismissRequest = { showAboutDialog = false },
+            title = { Text(text = "About ${currentItem.author}") },
+            text = { Text(text = currentItem.about) },
+            confirmButton = {
+                TextButton(onClick = { showAboutDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 
     Surface(
@@ -458,16 +477,23 @@ fun QuoteDisplay(
             Spacer(modifier = Modifier.height(24.dp))
 
             // Independently styled Author
-            Text(
-                text = "— ${currentItem.author}",
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    fontWeight = FontWeight.Light,
-                    fontSize = 18.sp,
-                    color = Color.Gray,
-                    letterSpacing = 1.sp
-                ),
-                textAlign = TextAlign.Center
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "— ${currentItem.author}",
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontWeight = FontWeight.Light,
+                        fontSize = 18.sp,
+                        color = Color.Gray,
+                        letterSpacing = 1.sp
+                    ),
+                    textAlign = TextAlign.Center
+                )
+                if (currentItem.about.isNotBlank()) {
+                    TextButton(onClick = { showAboutDialog = true }) {
+                        Text("About", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(48.dp))
 
@@ -502,6 +528,33 @@ fun BrowseQuotesView(
 ) {
     val authors = remember(quotes) { quotes.map { it.author }.distinct().sorted() }
     var selectedAuthor by remember { mutableStateOf<String?>(null) }
+    var showAboutDialog by remember { mutableStateOf(false) }
+
+    // System Back Press Handling
+    BackHandler {
+        if (selectedAuthor != null) {
+            selectedAuthor = null
+        } else {
+            onBack()
+        }
+    }
+
+    val currentAuthorAbout = remember(selectedAuthor, quotes) {
+        quotes.find { it.author == selectedAuthor }?.about ?: ""
+    }
+
+    if (showAboutDialog && selectedAuthor != null) {
+        AlertDialog(
+            onDismissRequest = { showAboutDialog = false },
+            title = { Text(text = "About $selectedAuthor") },
+            text = { Text(text = currentAuthorAbout) },
+            confirmButton = {
+                TextButton(onClick = { showAboutDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
@@ -538,8 +591,16 @@ fun BrowseQuotesView(
                 }
             }
         } else {
-            TextButton(onClick = { selectedAuthor = null }) {
-                Text("← Back to Authors")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { selectedAuthor = null }) {
+                    Text("← Back to Authors")
+                }
+                if (currentAuthorAbout.isNotBlank()) {
+                    Spacer(modifier = Modifier.weight(1f))
+                    Button(onClick = { showAboutDialog = true }) {
+                        Text("About Author")
+                    }
+                }
             }
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 val authorQuotes = quotes.filter { it.author == selectedAuthor }
