@@ -6,30 +6,31 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
 
 - **Dynamic Source**: Fetches quotes in real-time from a published Google Sheets CSV URL.
 - **Offline First**: Automatically caches the latest quotes to ensure the app works perfectly without an internet connection.
-- **Daily Notifications**: Receive a random dose of wisdom every morning.
-- **Customizable Schedule**: Integrated `TimePickerDialog` allows you to choose exactly when you want to be notified.
+- **Daily Notifications**: Receive a random dose of wisdom every morning via Android **WorkManager**.
 - **Discovery Tools**:
-    - **Random Shuffle**: Instantly jump to a new random quote.
-    - **Author Browser**: Explore the entire collection grouped by author using a high-performance `LazyColumn` interface.
-- **Material 3 Design**: Clean, responsive UI with independent typography styling for quotes and authors.
+    - **Interactive Pager**: Swipe through a shuffled deck of wisdom.
+    - **Author Browser**: Explore the entire collection grouped by author with a high-performance `LazyColumn` interface.
+    - **Author Biographies**: Detailed "About the Author" sections presented in beautiful **Material 3 Bottom Sheets** with intelligent paragraph formatting for readability.
+- **Visual Identity**:
+    - **Dynamic Avatars**: Every author is assigned a unique, color-coded circular avatar based on their name for instant recognition.
+    - **Premium UI**: Refined typography, balanced negative space, and modern Material 3 components like `FilledTonalButton` and `ElevatedCard`.
 
 ## 🛠️ Technical Stack
 
 - **UI**: Jetpack Compose (Material 3)
-- **Language**: Kotlin
 - **Architecture**: Modular functional approach with a centralized `QuoteRepository`
-- **Background Tasks**: Android WorkManager for reliable daily notification scheduling
-- **Networking**: Coroutines with `Dispatchers.IO` for non-blocking network calls
-- **Storage**: `SharedPreferences` with Android KTX for efficient local caching
-- **Permissions**: Graceful handling of Android 13+ POST_NOTIFICATIONS permissions
+- **Background Tasks**: WorkManager for reliable daily notification scheduling with custom time offsets.
+- **Networking**: Kotlin Coroutines for non-blocking fetch and parse logic.
+- **Storage**: `SharedPreferences` with Android KTX for efficient local caching.
+- **Permissions**: Fully compatible with Android 13+ (TIRAMISU) notification permission flows.
 
-## 📦 How to Use Your Own Data
+## 📦 Data Schema
 
-The app is currently configured to read from a Google Sheet with two columns:
-- **Column A**: Author Name
-- **Column B**: Quote Text
-
-To use your own quotes, simply update the `csvUrl` variable in `MainActivity.kt` with your published CSV link from Google Sheets.
+The app expects a published Google Sheets CSV with the following columns:
+1. **Author**: Name of the individual.
+2. **About**: A biography or description of the author.
+3. **Quote**: The text of the wisdom.
+4. **Image URL (Optional)**: A direct link to an author image.
 
 ## 📸 Screenshots
 
@@ -37,4 +38,4 @@ To use your own quotes, simply update the `csvUrl` variable in `MainActivity.kt`
 
 ## 📝 License
 
-This project is intended for personal use and learning. feel free to fork and customize your own version of wisdom!
+This project is intended for personal use and learning. Feel free to fork and customize your own version of wisdom!
