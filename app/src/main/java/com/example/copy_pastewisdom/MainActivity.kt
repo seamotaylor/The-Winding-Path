@@ -18,24 +18,38 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,8 +84,20 @@ import java.net.URL
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
+// Add this for standard icons if not available
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Close
+
+
 // --- SECTION 1: DATA MODELS ---
-data class QuoteItem(val author: String, val about: String, val quote: String)
+data class QuoteItem(
+    val author: String,
+    val about: String,
+    val quote: String,
+    val imageUrl: String? = null
+)
 
 sealed class QuoteState {
     object Loading : QuoteState()
@@ -110,6 +136,7 @@ object QuoteRepository {
                     author = parts.getOrNull(0)?.trim()?.removeSurrounding("\"") ?: "Unknown",
                     about = parts.getOrNull(1)?.trim()?.removeSurrounding("\"") ?: "",
                     quote = parts.getOrNull(2)?.trim()?.removeSurrounding("\"") ?: "",
+                    imageUrl = parts.getOrNull(3)?.trim()?.removeSurrounding("\"")
                 )
             }
             .filter { it.quote.isNotBlank() }
@@ -172,9 +199,8 @@ class DailyQuoteWorker(context: Context, params: WorkerParameters) : CoroutineWo
 
         val builder = NotificationCompat.Builder(applicationContext, channelId)
             .setSmallIcon(R.mipmap.ic_launcher) // System launcher icon
-            .setContentTitle("Your Daily Wisdom")
-            .setContentText("\"${item.quote}\"")
-            .setSubText(item.author)
+            .setContentTitle("From ${item.author}")
+            .setContentText("“${item.quote}”")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
 
@@ -242,6 +268,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(modifier: Modifier = Modifier, context: Context) {
     var uiState by remember { mutableStateOf<QuoteState>(QuoteState.Loading) }
@@ -253,7 +280,9 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
     }
     var isBrowsing by remember { mutableStateOf(value = false) }
     var browseSelectedItem by remember { mutableStateOf<QuoteItem?>(null) }
+    var showSettings by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState()
 
     // Permission Launcher
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -308,33 +337,58 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
         fetchQuotes()
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        // Notification Toggle Section
-        NotificationSettingsRow(enabled = notificationsEnabled) { isChecked ->
-            if (isChecked) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                } else {
-                    notificationsEnabled = true
-                    QuoteRepository.setNotificationsEnabled(context, enabled = true)
-                    NotificationScheduler.scheduleDailyNotification(context)
-                }
-            } else {
-                notificationsEnabled = false
-                QuoteRepository.setNotificationsEnabled(context, enabled = false)
-                NotificationScheduler.cancelDailyNotification(context)
+    if (showSettings) {
+        ModalBottomSheet(
+            onDismissRequest = { showSettings = false },
+            sheetState = sheetState
+        ) {
+            SettingsContent(
+                notificationsEnabled = notificationsEnabled,
+                notificationTime = notificationTime,
+                onToggleNotifications = { isChecked ->
+                    if (isChecked) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            notificationsEnabled = true
+                            QuoteRepository.setNotificationsEnabled(context, enabled = true)
+                            NotificationScheduler.scheduleDailyNotification(context)
+                        }
+                    } else {
+                        notificationsEnabled = false
+                        QuoteRepository.setNotificationsEnabled(context, enabled = false)
+                        NotificationScheduler.cancelDailyNotification(context)
+                    }
+                },
+                onShowTimePicker = { timePickerDialog.show() }
+            )
+        }
+    }
+
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            if (!isBrowsing) {
+                CenterAlignedTopAppBar(
+                    title = { Text("Wisdom", fontWeight = FontWeight.Bold) },
+                    actions = {
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent
+                    )
+                )
             }
         }
-
-        // Time Selection Section
-        TimeSettingsRow(
-            hour = notificationTime.first,
-            minute = notificationTime.second,
-        ) { timePickerDialog.show() }
-        
-        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-
-        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentAlignment = Alignment.Center
+        ) {
             when (val state = uiState) {
                 is QuoteState.Loading -> CircularProgressIndicator()
                 is QuoteState.Success -> {
@@ -364,6 +418,34 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
         }
     }
 }
+
+@Composable
+fun SettingsContent(
+    notificationsEnabled: Boolean,
+    notificationTime: Pair<Int, Int>,
+    onToggleNotifications: (Boolean) -> Unit,
+    onShowTimePicker: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .padding(bottom = 32.dp)
+    ) {
+        Text(
+            text = "Settings",
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+        NotificationSettingsRow(enabled = notificationsEnabled, onToggle = onToggleNotifications)
+        TimeSettingsRow(
+            hour = notificationTime.first,
+            minute = notificationTime.second,
+            onClick = onShowTimePicker
+        )
+    }
+}
+
 
 @Composable
 fun NotificationSettingsRow(enabled: Boolean, onToggle: (Boolean) -> Unit) {
@@ -410,141 +492,211 @@ fun TimeSettingsRow(hour: Int, minute: Int, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuoteDisplay(
     quotes: List<QuoteItem>,
     externalSelectedQuote: QuoteItem? = null,
-    onBrowseClick: () -> Unit
+    onBrowseClick: () -> Unit,
 ) {
     val dayOfYear = Calendar.getInstance()[Calendar.DAY_OF_YEAR]
-    val dailyIndex = dayOfYear % quotes.size
-    
-    var currentItem by remember { mutableStateOf(quotes[dailyIndex]) }
+    val dailyQuote = quotes[dayOfYear % quotes.size]
+
+    val shuffledQuotes = remember(quotes) { quotes.shuffled() }
+    val dailyIndexInShuffled = remember(shuffledQuotes, dailyQuote) {
+        shuffledQuotes.indexOf(dailyQuote).coerceAtLeast(0)
+    }
+
+    val pagerState = rememberPagerState(initialPage = dailyIndexInShuffled) { shuffledQuotes.size }
+    val scope = rememberCoroutineScope()
     var showAboutDialog by remember { mutableStateOf(value = false) }
-    val isDaily = currentItem == quotes[dailyIndex]
+
+    val currentItem = shuffledQuotes[pagerState.currentPage]
+    val isDaily = pagerState.currentPage == dailyIndexInShuffled
 
     val authorAbout = remember(currentItem.author, quotes) {
         quotes.find { (it.author == currentItem.author) && it.about.isNotBlank() }?.about ?: ""
     }
 
     LaunchedEffect(externalSelectedQuote) {
-        externalSelectedQuote?.let { currentItem = it }
+        externalSelectedQuote?.let { selected ->
+            val index = shuffledQuotes.indexOf(selected)
+            if (index >= 0) {
+                pagerState.scrollToPage(index)
+            }
+        }
     }
 
     if (showAboutDialog) {
-        AlertDialog(
+        ModalBottomSheet(
             onDismissRequest = { showAboutDialog = false },
-            title = { Text(text = "About ${currentItem.author}") },
-            text = { Text(text = authorAbout) },
-            confirmButton = {
-                TextButton(onClick = { showAboutDialog = false }) {
-                    Text("Close")
-                }
-            }
-        )
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            AuthorAboutContent(
+                author = currentItem.author,
+                about = authorAbout,
+                onClose = { showAboutDialog = false }
+            )
+        }
     }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
+        color = MaterialTheme.colorScheme.background,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Quote Content Section (Centered in the remaining space)
-            Column(
+            // Pager Section (Centered in the remaining space)
+            HorizontalPager(
+                state = pagerState,
                 modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = if (isDaily) "TODAY'S WISDOM" else "RANDOM WISDOM",
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        letterSpacing = 2.sp,
-                        fontWeight = FontWeight.Black
+                verticalAlignment = Alignment.CenterVertically,
+            ) { page ->
+                val item = shuffledQuotes[page]
+                val pageIsDaily = page == dailyIndexInShuffled
+
+                ElevatedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
                     ),
-                    color = if (isDaily) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.padding(bottom = 24.dp)
-                )
+                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .padding(24.dp)
+                            .fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text(
+                            text = if (pageIsDaily) "TODAY'S WISDOM" else "RANDOM WISDOM",
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                letterSpacing = 1.2.sp,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            color = if (pageIsDaily) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                        )
 
-                // Independently styled Quote
-                Text(
-                    text = "\"${currentItem.quote}\"",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontStyle = FontStyle.Italic,
-                        lineHeight = 40.sp,
-                        fontSize = 28.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    textAlign = TextAlign.Center
-                )
+                        if (pageIsDaily) {
+                            Text(
+                                text = "Swipe to see more",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.padding(top = 4.dp, bottom = 24.dp)
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.height(24.dp))
+                        }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                        // Decorative curly quotes
+                        Text(
+                            text = "“",
+                            style = MaterialTheme.typography.displayMedium,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                            modifier = Modifier.align(Alignment.Start)
+                        )
 
-                // Independently styled Author
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "— ${currentItem.author}",
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            fontWeight = FontWeight.Light,
-                            fontSize = 18.sp,
-                            color = Color.Gray,
-                            letterSpacing = 1.sp
-                        ),
-                        textAlign = TextAlign.Center
-                    )
-                    if (authorAbout.isNotBlank()) {
-                        TextButton(
-                            onClick = { showAboutDialog = true },
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = item.quote,
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontStyle = FontStyle.Italic,
+                                lineHeight = 36.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "”",
+                            style = MaterialTheme.typography.displayMedium,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                            modifier = Modifier.align(Alignment.End)
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Independently styled Author
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            Text("About", style = MaterialTheme.typography.bodySmall)
+                            AuthorAvatar(author = item.author, size = 32.dp)
+                            
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            Text(
+                                text = item.author,
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    letterSpacing = 0.5.sp,
+                                ),
+                                textAlign = TextAlign.Center,
+                            )
+                            if (authorAbout.isNotBlank() && page == pagerState.currentPage) {
+                                IconButton(
+                                    onClick = { showAboutDialog = true },
+                                    modifier = Modifier.padding(start = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Info,
+                                        contentDescription = "About author",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            // Buttons Section (Stationary at the bottom)
+            // Stationary Buttons Section
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(bottom = 16.dp)
+                modifier = Modifier.padding(top = 24.dp, bottom = 16.dp),
             ) {
-                // Fixed height container keeps buttons below it from jumping
                 Box(
-                    modifier = Modifier.height(40.dp),
-                    contentAlignment = Alignment.Center
+                    modifier = Modifier.height(48.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
                     if (!isDaily) {
                         TextButton(
                             onClick = {
-                                currentItem = quotes[dailyIndex]
+                                scope.launch { pagerState.animateScrollToPage(dailyIndexInShuffled) }
                             },
                         ) {
-                            Text("Back to Today's Quote", style = MaterialTheme.typography.bodySmall)
+                            Text("Back to Today's Wisdom", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
 
-                Button(
-                    onClick = {
-                        currentItem = quotes.random()
-                    },
+                FilledTonalButton(
+                    onClick = onBrowseClick,
+                    shape = MaterialTheme.shapes.extraLarge,
+                    contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp)
                 ) {
-                    Text("Next Random Quote")
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Button(onClick = onBrowseClick) {
-                    Text("Browse All Quotes")
+                    Text("Browse All Quotes", style = MaterialTheme.typography.titleMedium)
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowseQuotesView(
     quotes: List<QuoteItem>,
@@ -571,16 +723,16 @@ fun BrowseQuotesView(
     }
 
     if (showAboutDialog && (selectedAuthor != null)) {
-        AlertDialog(
+        ModalBottomSheet(
             onDismissRequest = { showAboutDialog = false },
-            title = { Text(text = "About $selectedAuthor") },
-            text = { Text(text = currentAuthorAbout) },
-            confirmButton = {
-                TextButton(onClick = { showAboutDialog = false }) {
-                    Text("Close")
-                }
-            }
-        )
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            AuthorAboutContent(
+                author = selectedAuthor!!,
+                about = currentAuthorAbout,
+                onClose = { showAboutDialog = false }
+            )
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -608,11 +760,17 @@ fun BrowseQuotesView(
                         modifier = Modifier.fillMaxWidth(),
                         shape = MaterialTheme.shapes.medium
                     ) {
-                        Text(
-                            text = author,
+                        Row(
                             modifier = Modifier.padding(16.dp),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            AuthorAvatar(author = author, size = 40.dp)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = author,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
                     }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp))
                 }
@@ -639,11 +797,91 @@ fun BrowseQuotesView(
                         shape = MaterialTheme.shapes.medium
                     ) {
                         Text(
-                            text = "\"${item.quote}\"",
+                            text = "“${item.quote}”",
                             modifier = Modifier.padding(16.dp),
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AuthorAvatar(author: String, size: androidx.compose.ui.unit.Dp) {
+    val backgroundColor = remember(author) {
+        val colors = listOf(
+            Color(0xFFEF5350), Color(0xFFEC407A), Color(0xFFAB47BC),
+            Color(0xFF7E57C2), Color(0xFF5C6BC0), Color(0xFF42A5F5),
+            Color(0xFF26A69A), Color(0xFF66BB6A), Color(0xFFFFA726)
+        )
+        colors[author.hashCode().coerceAtLeast(0) % colors.size]
+    }
+
+    Surface(
+        modifier = Modifier.size(size),
+        shape = androidx.compose.foundation.shape.CircleShape,
+        color = backgroundColor,
+        tonalElevation = 2.dp
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = author.take(1).uppercase(),
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
+    }
+}
+
+@Composable
+fun AuthorAboutContent(
+    author: String,
+    about: String,
+    onClose: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp)
+            .padding(bottom = 32.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "About $author",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "Close")
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Simple paragraph splitting for readability
+        val paragraphs = remember(about) {
+            about.split(Regex("(?<=[.!?])\\s+"))
+        }
+        
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(paragraphs) { paragraph ->
+                if (paragraph.isNotBlank()) {
+                    Text(
+                        text = paragraph,
+                        style = MaterialTheme.typography.bodyLarge,
+                        lineHeight = 26.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
