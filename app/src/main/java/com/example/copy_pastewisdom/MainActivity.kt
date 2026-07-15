@@ -25,6 +25,7 @@ import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -117,6 +118,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import com.example.copy_pastewisdom.ui.theme.CopyPasteWisdomTheme
 import kotlinx.coroutines.Dispatchers
@@ -625,6 +627,40 @@ fun SettingsContent(
             minute = notificationTime.second,
             onClick = onShowTimePicker
         )
+
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 8.dp),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+        )
+        
+        Text(
+            text = "About",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Image(
+                painter = painterResource(id = R.mipmap.ic_launcher),
+                contentDescription = null,
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(RoundedCornerShape(12.dp))
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(
+                text = "The labyrinth represents the philosophical journey—a single, winding path to the center of truth. Unlike a maze designed to confuse, the labyrinth is a meditative quest for wisdom and self-discovery.",
+                style = MaterialTheme.typography.bodySmall,
+                color = SecondaryText
+            )
+        }
     }
 }
 
