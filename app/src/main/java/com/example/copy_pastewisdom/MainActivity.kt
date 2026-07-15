@@ -2,6 +2,8 @@
 package com.example.copy_pastewisdom
 
 import android.Manifest
+import android.app.PendingIntent
+import android.content.Intent
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.TimePickerDialog
@@ -9,6 +11,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -65,6 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.ContentScale
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -76,6 +80,9 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
 import com.example.copy_pastewisdom.ui.theme.CopyPasteWisdomTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -89,6 +96,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 
 
 // --- SECTION 1: DATA MODELS ---
@@ -126,21 +134,35 @@ object QuoteRepository {
     }
 
     fun parseCsv(rawData: String): List<QuoteItem> {
+        Log.d("QuoteRepository", "Parsing CSV data, length: ${rawData.length}")
         return rawData.lineSequence()
             .drop(1) // Exclude header row
             .filter { it.contains(",") }
             .map { line ->
                 // Use a regex that only splits by comma if it's not inside double quotes
                 val parts = line.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)".toRegex())
+                val rawUrl = parts.getOrNull(3)?.trim()?.removeSurrounding("\"")
                 QuoteItem(
                     author = parts.getOrNull(0)?.trim()?.removeSurrounding("\"") ?: "Unknown",
                     about = parts.getOrNull(1)?.trim()?.removeSurrounding("\"") ?: "",
                     quote = parts.getOrNull(2)?.trim()?.removeSurrounding("\"") ?: "",
-                    imageUrl = parts.getOrNull(3)?.trim()?.removeSurrounding("\"")
+                    imageUrl = formatImageUrl(rawUrl)
                 )
             }
             .filter { it.quote.isNotBlank() }
             .toList()
+    }
+
+    private fun formatImageUrl(url: String?): String? {
+        if (url.isNullOrBlank()) return null
+        
+        // Convert Google Drive "view" links to direct download links
+        if (url.contains("drive.google.com/file/d/")) {
+            val fileId = url.substringAfter("/d/").substringBefore("/")
+            return "https://lh3.googleusercontent.com/d/$fileId"
+        }
+        
+        return url
     }
 
     fun setNotificationsEnabled(context: Context, enabled: Boolean) {
@@ -197,11 +219,22 @@ class DailyQuoteWorker(context: Context, params: WorkerParameters) : CoroutineWo
             notificationManager.createNotificationChannel(channel)
         }
 
+        val intent = Intent(applicationContext, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent: PendingIntent = PendingIntent.getActivity(
+            applicationContext, 
+            0, 
+            intent, 
+            PendingIntent.FLAG_IMMUTABLE
+        )
+
         val builder = NotificationCompat.Builder(applicationContext, channelId)
             .setSmallIcon(R.mipmap.ic_launcher) // System launcher icon
             .setContentTitle("From ${item.author}")
             .setContentText("“${item.quote}”")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 
         with(NotificationManagerCompat.from(applicationContext)) {
@@ -313,19 +346,24 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
     suspend fun fetchQuotes() {
         uiState = QuoteState.Loading
         uiState = try {
-            val url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQbAfs-rGaKSvL5F8RZDLr90glOyKsKsTZsDYToO1QcqfpVIIr5XhBAvtuCtJJqz-ZwG191quZMRnwp/pub?gid=0&single=true&output=csv"
+            val timestamp = System.currentTimeMillis()
+            val url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQbAfs-rGaKSvL5F8RZDLr90glOyKsKsTZsDYToO1QcqfpVIIr5XhBAvtuCtJJqz-ZwG191quZMRnwp/pub?gid=0&single=true&output=csv&t=$timestamp"
+            Log.d("MainActivity", "Fetching quotes from: $url")
             val rawData = withContext(Dispatchers.IO) { URL(url).readText() }
             val quotes = QuoteRepository.parseCsv(rawData)
             
             if (quotes.isNotEmpty()) {
+                Log.d("MainActivity", "Successfully fetched ${quotes.size} quotes")
                 QuoteRepository.saveQuotesToCache(context, rawData)
                 QuoteState.Success(quotes)
             } else {
                 throw Exception("No quotes found")
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Fetch failed: ${e.message}", e)
             val cached = QuoteRepository.getQuotesFromCache(context)
             if (cached.isNotEmpty()) {
+                Log.d("MainActivity", "Falling back to cache: ${cached.size} quotes")
                 QuoteState.Success(cached)
             } else {
                 QuoteState.Error("Network error and no cache available.")
@@ -372,6 +410,9 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
                 CenterAlignedTopAppBar(
                     title = { Text("Wisdom", fontWeight = FontWeight.Bold) },
                     actions = {
+                        IconButton(onClick = { scope.launch { fetchQuotes() } }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        }
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
                         }
@@ -518,6 +559,10 @@ fun QuoteDisplay(
         quotes.find { (it.author == currentItem.author) && it.about.isNotBlank() }?.about ?: ""
     }
 
+    val authorImageUrl = remember(currentItem.author, quotes) {
+        quotes.find { it.author == currentItem.author && !it.imageUrl.isNullOrBlank() }?.imageUrl
+    }
+
     LaunchedEffect(externalSelectedQuote) {
         externalSelectedQuote?.let { selected ->
             val index = shuffledQuotes.indexOf(selected)
@@ -535,6 +580,7 @@ fun QuoteDisplay(
             AuthorAboutContent(
                 author = currentItem.author,
                 about = authorAbout,
+                imageUrl = authorImageUrl,
                 onClose = { showAboutDialog = false }
             )
         }
@@ -632,7 +678,11 @@ fun QuoteDisplay(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            AuthorAvatar(author = item.author, size = 32.dp)
+                            val authorImageUrl = remember(item.author, quotes) {
+                                quotes.find { it.author == item.author && !it.imageUrl.isNullOrBlank() }?.imageUrl
+                            }
+                            
+                            AuthorAvatar(author = item.author, imageUrl = authorImageUrl, size = 32.dp)
                             
                             Spacer(modifier = Modifier.width(8.dp))
 
@@ -722,6 +772,10 @@ fun BrowseQuotesView(
         quotes.find { (it.author == selectedAuthor) && it.about.isNotBlank() }?.about ?: ""
     }
 
+    val currentAuthorImageUrl = remember(selectedAuthor, quotes) {
+        quotes.find { it.author == selectedAuthor && !it.imageUrl.isNullOrBlank() }?.imageUrl
+    }
+
     if (showAboutDialog && (selectedAuthor != null)) {
         ModalBottomSheet(
             onDismissRequest = { showAboutDialog = false },
@@ -730,6 +784,7 @@ fun BrowseQuotesView(
             AuthorAboutContent(
                 author = selectedAuthor!!,
                 about = currentAuthorAbout,
+                imageUrl = currentAuthorImageUrl,
                 onClose = { showAboutDialog = false }
             )
         }
@@ -755,6 +810,9 @@ fun BrowseQuotesView(
         if (selectedAuthor == null) {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(authors) { author ->
+                    val authorImageUrl = remember(author, quotes) {
+                        quotes.find { it.author == author }?.imageUrl
+                    }
                     Surface(
                         onClick = { selectedAuthor = author },
                         modifier = Modifier.fillMaxWidth(),
@@ -764,7 +822,7 @@ fun BrowseQuotesView(
                             modifier = Modifier.padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            AuthorAvatar(author = author, size = 40.dp)
+                            AuthorAvatar(author = author, imageUrl = authorImageUrl, size = 40.dp)
                             Spacer(modifier = Modifier.width(16.dp))
                             Text(
                                 text = author,
@@ -809,7 +867,7 @@ fun BrowseQuotesView(
 }
 
 @Composable
-fun AuthorAvatar(author: String, size: androidx.compose.ui.unit.Dp) {
+fun AuthorAvatar(author: String, imageUrl: String? = null, size: androidx.compose.ui.unit.Dp) {
     val backgroundColor = remember(author) {
         val colors = listOf(
             Color(0xFFEF5350), Color(0xFFEC407A), Color(0xFFAB47BC),
@@ -819,6 +877,8 @@ fun AuthorAvatar(author: String, size: androidx.compose.ui.unit.Dp) {
         colors[author.hashCode().coerceAtLeast(0) % colors.size]
     }
 
+    var isError by remember(imageUrl) { mutableStateOf(false) }
+
     Surface(
         modifier = Modifier.size(size),
         shape = androidx.compose.foundation.shape.CircleShape,
@@ -826,12 +886,31 @@ fun AuthorAvatar(author: String, size: androidx.compose.ui.unit.Dp) {
         tonalElevation = 2.dp
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = author.take(1).uppercase(),
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleMedium
-            )
+            if (!imageUrl.isNullOrBlank() && !isError) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(imageUrl)
+                        .addHeader("User-Agent", "CopyPasteWisdom/1.0 (https://github.com/seamotaylor/Copy-Paste-Wisdom) Coil/2.6.0")
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = author,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    onError = { 
+                        Log.e("AuthorAvatar", "Failed to load image for $author: $imageUrl", it.result.throwable)
+                        isError = true 
+                    }
+                )
+            }
+            
+            if (imageUrl.isNullOrBlank() || isError) {
+                Text(
+                    text = author.take(1).uppercase(),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    style = if (size < 40.dp) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleMedium
+                )
+            }
         }
     }
 }
@@ -840,13 +919,15 @@ fun AuthorAvatar(author: String, size: androidx.compose.ui.unit.Dp) {
 fun AuthorAboutContent(
     author: String,
     about: String,
+    imageUrl: String? = null,
     onClose: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(24.dp)
-            .padding(bottom = 32.dp)
+            .padding(bottom = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -864,10 +945,16 @@ fun AuthorAboutContent(
         }
         
         Spacer(modifier = Modifier.height(16.dp))
+
+        // Hero image / Closeup
+        AuthorAvatar(author = author, imageUrl = imageUrl, size = 120.dp)
+
+        Spacer(modifier = Modifier.height(24.dp))
         
         // Simple paragraph splitting for readability
+        // Only split if punctuation is followed by a space and a Capital letter
         val paragraphs = remember(about) {
-            about.split(Regex("(?<=[.!?])\\s+"))
+            about.split(Regex("(?<=[.!?])\\s+(?=[A-Z])"))
         }
         
         LazyColumn(
