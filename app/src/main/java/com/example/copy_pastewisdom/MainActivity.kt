@@ -18,12 +18,20 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,16 +39,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -52,6 +64,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -62,13 +75,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.util.lerp
+import kotlin.math.absoluteValue
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -83,6 +102,8 @@ import androidx.work.WorkerParameters
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import com.example.copy_pastewisdom.ui.theme.CopyPasteWisdomTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -95,6 +116,7 @@ import java.util.concurrent.TimeUnit
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 
@@ -114,12 +136,20 @@ sealed class QuoteState {
 }
 
 // --- SECTION 2: REPOSITORY & CACHE LOGIC ---
+enum class WisdomTheme(val label: String, val primaryColor: Color) {
+    Neutral("Neutral", Color(0xFFE0E0E0)),
+    Gold("Scholarly", Color(0xFFD4AF37)),
+    Sage("Peaceful", Color(0xFF8FBC8F)),
+    Blue("Intellectual", Color(0xFF78909C))
+}
+
 object QuoteRepository {
     private const val PREFS_NAME = "quote_prefs"
     private const val KEY_CSV = "cached_quotes_csv"
     private const val KEY_NOTIFS_ENABLED = "notifs_enabled"
     private const val KEY_NOTIF_HOUR = "notif_hour"
     private const val KEY_NOTIF_MINUTE = "notif_minute"
+    private const val KEY_THEME = "app_theme"
 
     fun getQuotesFromCache(context: Context): List<QuoteItem> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -189,6 +219,18 @@ object QuoteRepository {
             prefs.getInt(KEY_NOTIF_HOUR, 8),
             prefs.getInt(KEY_NOTIF_MINUTE, 0),
         )
+    }
+
+    fun setTheme(context: Context, theme: WisdomTheme) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            putString(KEY_THEME, theme.name)
+        }
+    }
+
+    fun getTheme(context: Context): WisdomTheme {
+        val name = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_THEME, WisdomTheme.Neutral.name)
+        return try { WisdomTheme.valueOf(name!!) } catch (_: Exception) { WisdomTheme.Neutral }
     }
 }
 
@@ -284,18 +326,48 @@ object NotificationScheduler {
 }
 
 // --- SECTION 4: MAIN ACTIVITY & UI ---
+private val DarkBackground = Color(0xFF121212)
+private val PrimaryText = Color(0xFFEDEDED)
+private val SecondaryText = Color(0xFFBDBDBD)
+private val CardSurface = Color(0xFF1E1E1E)
+
+@Composable
+fun WisdomAppTheme(theme: WisdomTheme = WisdomTheme.Neutral, content: @Composable () -> Unit) {
+    val wisdomColorScheme = darkColorScheme(
+        primary = theme.primaryColor,
+        onPrimary = Color.Black,
+        secondary = theme.primaryColor.copy(alpha = 0.8f),
+        onSecondary = Color.Black,
+        background = DarkBackground,
+        onBackground = PrimaryText,
+        surface = CardSurface,
+        onSurface = PrimaryText,
+        surfaceVariant = Color(0xFF2C2C2C),
+        onSurfaceVariant = SecondaryText
+    )
+
+    MaterialTheme(
+        colorScheme = wisdomColorScheme,
+        content = content
+    )
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            CopyPasteWisdomTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    MainScreen(
-                        modifier = Modifier.padding(innerPadding),
-                        context = this,
-                    )
-                }
+            var currentTheme by remember { mutableStateOf(QuoteRepository.getTheme(this)) }
+            
+            WisdomAppTheme(theme = currentTheme) {
+                MainScreen(
+                    context = this,
+                    currentTheme = currentTheme,
+                    onThemeChange = { newTheme ->
+                        currentTheme = newTheme
+                        QuoteRepository.setTheme(this, newTheme)
+                    }
+                )
             }
         }
     }
@@ -303,7 +375,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(modifier: Modifier = Modifier, context: Context) {
+fun MainScreen(context: Context, currentTheme: WisdomTheme, onThemeChange: (WisdomTheme) -> Unit) {
     var uiState by remember { mutableStateOf<QuoteState>(QuoteState.Loading) }
     var notificationsEnabled by remember { 
         mutableStateOf(QuoteRepository.isNotificationsEnabled(context)) 
@@ -318,8 +390,8 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
     val sheetState = rememberModalBottomSheetState()
 
     // Permission Launcher
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
+    val permissionLauncher = rememberLauncherForActivityResult<String, Boolean>(
+        contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
             notificationsEnabled = true
@@ -353,17 +425,14 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
             val quotes = QuoteRepository.parseCsv(rawData)
             
             if (quotes.isNotEmpty()) {
-                Log.d("MainActivity", "Successfully fetched ${quotes.size} quotes")
                 QuoteRepository.saveQuotesToCache(context, rawData)
                 QuoteState.Success(quotes)
             } else {
                 throw Exception("No quotes found")
             }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Fetch failed: ${e.message}", e)
+        } catch (_: Exception) {
             val cached = QuoteRepository.getQuotesFromCache(context)
             if (cached.isNotEmpty()) {
-                Log.d("MainActivity", "Falling back to cache: ${cached.size} quotes")
                 QuoteState.Success(cached)
             } else {
                 QuoteState.Error("Network error and no cache available.")
@@ -383,6 +452,8 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
             SettingsContent(
                 notificationsEnabled = notificationsEnabled,
                 notificationTime = notificationTime,
+                currentTheme = currentTheme,
+                onThemeChange = onThemeChange,
                 onToggleNotifications = { isChecked ->
                     if (isChecked) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -404,22 +475,11 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
     }
 
     Scaffold(
-        modifier = modifier,
         topBar = {
             if (!isBrowsing) {
-                CenterAlignedTopAppBar(
-                    title = { Text("Wisdom", fontWeight = FontWeight.Bold) },
-                    actions = {
-                        IconButton(onClick = { scope.launch { fetchQuotes() } }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                        }
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Settings")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent
-                    )
+                WisdomTopBar(
+                    onRefresh = { scope.launch { fetchQuotes() } },
+                    onSettings = { showSettings = true }
                 )
             }
         }
@@ -427,43 +487,87 @@ fun MainScreen(modifier: Modifier = Modifier, context: Context) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.background,
+                            Color(0xFF000000)
+                        )
+                    )
+                )
                 .padding(innerPadding),
             contentAlignment = Alignment.Center
         ) {
-            when (val state = uiState) {
-                is QuoteState.Loading -> CircularProgressIndicator()
-                is QuoteState.Success -> {
-                    if (isBrowsing) {
-                        BrowseQuotesView(
-                            quotes = state.quotes,
-                            onQuoteSelected = { 
-                                browseSelectedItem = it
-                                isBrowsing = false 
-                            },
-                        ) { isBrowsing = false }
-                    } else {
-                        QuoteDisplay(
-                            quotes = state.quotes,
-                            externalSelectedQuote = browseSelectedItem,
-                            onBrowseClick = { isBrowsing = true }
-                        )
+            AnimatedContent(
+                targetState = uiState,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(600)) togetherWith fadeOut(animationSpec = tween(300))
+                }, label = ""
+            ) { state ->
+                when (state) {
+                    is QuoteState.Loading -> CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    is QuoteState.Success -> {
+                        if (isBrowsing) {
+                            BrowseQuotesView(
+                                quotes = state.quotes,
+                                onQuoteSelected = { 
+                                    browseSelectedItem = it
+                                    isBrowsing = false 
+                                },
+                                onBack = { isBrowsing = false }
+                            )
+                        } else {
+                            QuoteDisplay(
+                                quotes = state.quotes,
+                                externalSelectedQuote = browseSelectedItem,
+                                onBrowseClick = { isBrowsing = true }
+                            )
+                        }
                     }
+                    is QuoteState.Error -> ErrorView(
+                        message = state.message,
+                        onRetry = { scope.launch { fetchQuotes() } }
+                    )
                 }
-                is QuoteState.Error -> ErrorView(
-                    message = state.message,
-                    onRetry = {
-                        scope.launch { fetchQuotes() }
-                    },
-                )
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WisdomTopBar(onRefresh: () -> Unit, onSettings: () -> Unit) {
+    CenterAlignedTopAppBar(
+        title = {
+            Text(
+                "Copy-Paste Wisdom",
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Light,
+                    letterSpacing = 0.5.sp,
+                    color = SecondaryText
+                )
+            )
+        },
+        actions = {
+            IconButton(onClick = onRefresh) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = SecondaryText)
+            }
+            IconButton(onClick = onSettings) {
+                Icon(Icons.Default.Settings, contentDescription = "Settings", tint = SecondaryText)
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = Color.Transparent
+        )
+    )
 }
 
 @Composable
 fun SettingsContent(
     notificationsEnabled: Boolean,
     notificationTime: Pair<Int, Int>,
+    currentTheme: WisdomTheme,
+    onThemeChange: (WisdomTheme) -> Unit,
     onToggleNotifications: (Boolean) -> Unit,
     onShowTimePicker: () -> Unit
 ) {
@@ -476,14 +580,84 @@ fun SettingsContent(
         Text(
             text = "Settings",
             style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.padding(bottom = 16.dp)
+            modifier = Modifier.padding(bottom = 24.dp)
         )
+        
+        Text(
+            text = "Appearance",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+        
+        ThemeSelector(currentTheme = currentTheme, onThemeChange = onThemeChange)
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 8.dp),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+        )
+        
+        Text(
+            text = "Reminders",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+
         NotificationSettingsRow(enabled = notificationsEnabled, onToggle = onToggleNotifications)
         TimeSettingsRow(
             hour = notificationTime.first,
             minute = notificationTime.second,
             onClick = onShowTimePicker
         )
+    }
+}
+
+@Composable
+fun ThemeSelector(currentTheme: WisdomTheme, onThemeChange: (WisdomTheme) -> Unit) {
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp)
+    ) {
+        items(WisdomTheme.values()) { theme ->
+            val isSelected = theme == currentTheme
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clickable { onThemeChange(theme) }
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(theme.primaryColor, CircleShape)
+                        .padding(4.dp)
+                ) {
+                    if (isSelected) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.3f), CircleShape)
+                                .padding(8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Check, 
+                                contentDescription = null, 
+                                tint = Color.Black
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = theme.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else SecondaryText
+                )
+            }
+        }
     }
 }
 
@@ -551,6 +725,11 @@ fun QuoteDisplay(
     val pagerState = rememberPagerState(initialPage = dailyIndexInShuffled) { shuffledQuotes.size }
     val scope = rememberCoroutineScope()
     var showAboutDialog by remember { mutableStateOf(value = false) }
+    val haptic = LocalHapticFeedback.current
+
+    LaunchedEffect(pagerState.currentPage) {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
 
     val currentItem = shuffledQuotes[pagerState.currentPage]
     val isDaily = pagerState.currentPage == dailyIndexInShuffled
@@ -586,160 +765,181 @@ fun QuoteDisplay(
         }
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // Pager Section
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+            contentPadding = PaddingValues(vertical = 32.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) { page ->
+            QuoteCard(
+                item = shuffledQuotes[page],
+                isDaily = page == dailyIndexInShuffled,
+                pagerState = pagerState,
+                page = page,
+                onAboutClick = { showAboutDialog = true }
+            )
+        }
+
+        // CTA Section
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(bottom = 48.dp),
+        ) {
+            if (!isDaily) {
+                TextButton(
+                    onClick = {
+                        scope.launch { pagerState.animateScrollToPage(dailyIndexInShuffled) }
+                    },
+                    modifier = Modifier.padding(bottom = 16.dp)
+                ) {
+                    Text(
+                        "Return to Today's Wisdom",
+                        style = MaterialTheme.typography.labelLarge.copy(color = SecondaryText)
+                    )
+                }
+            } else {
+                Spacer(modifier = Modifier.height(64.dp))
+            }
+
+            Button(
+                onClick = onBrowseClick,
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                contentPadding = PaddingValues(horizontal = 48.dp, vertical = 16.dp),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+            ) {
+                Text(
+                    "Browse All Quotes",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun QuoteCard(
+    item: QuoteItem,
+    isDaily: Boolean,
+    pagerState: PagerState,
+    page: Int,
+    onAboutClick: () -> Unit
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+            .graphicsLayer {
+                val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).absoluteValue
+                val scale = lerp(0.9f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
+                scaleX = scale
+                scaleY = scale
+                alpha = lerp(0.5f, 1f, 1f - pageOffset.coerceIn(0f, 1f))
+            },
+        colors = CardDefaults.elevatedCardColors(containerColor = CardSurface),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp),
+        shape = RoundedCornerShape(24.dp)
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
+                .padding(32.dp)
+                .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            // Pager Section (Centered in the remaining space)
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-            ) { page ->
-                val item = shuffledQuotes[page]
-                val pageIsDaily = page == dailyIndexInShuffled
-
-                ElevatedCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp),
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    ),
-                    elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .padding(24.dp)
-                            .fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                    ) {
-                        Text(
-                            text = if (pageIsDaily) "TODAY'S WISDOM" else "RANDOM WISDOM",
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                letterSpacing = 1.2.sp,
-                                fontWeight = FontWeight.Bold,
-                            ),
-                            color = if (pageIsDaily) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
-                        )
-
-                        if (pageIsDaily) {
-                            Text(
-                                text = "Swipe to see more",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                modifier = Modifier.padding(top = 4.dp, bottom = 24.dp)
-                            )
-                        } else {
-                            Spacer(modifier = Modifier.height(24.dp))
-                        }
-
-                        // Decorative curly quotes
-                        Text(
-                            text = "“",
-                            style = MaterialTheme.typography.displayMedium,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                            modifier = Modifier.align(Alignment.Start)
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = item.quote,
-                            style = MaterialTheme.typography.headlineMedium.copy(
-                                fontStyle = FontStyle.Italic,
-                                lineHeight = 36.sp,
-                                fontWeight = FontWeight.Medium
-                            ),
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "”",
-                            style = MaterialTheme.typography.displayMedium,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                            modifier = Modifier.align(Alignment.End)
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Independently styled Author
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            val authorImageUrl = remember(item.author, quotes) {
-                                quotes.find { it.author == item.author && !it.imageUrl.isNullOrBlank() }?.imageUrl
-                            }
-                            
-                            AuthorAvatar(author = item.author, imageUrl = authorImageUrl, size = 32.dp)
-                            
-                            Spacer(modifier = Modifier.width(8.dp))
-
-                            Text(
-                                text = item.author,
-                                style = MaterialTheme.typography.bodyLarge.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp,
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    letterSpacing = 0.5.sp,
-                                ),
-                                textAlign = TextAlign.Center,
-                            )
-                            if (authorAbout.isNotBlank() && page == pagerState.currentPage) {
-                                IconButton(
-                                    onClick = { showAboutDialog = true },
-                                    modifier = Modifier.padding(start = 4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Info,
-                                        contentDescription = "About author",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = if (isDaily) "TODAY'S WISDOM" else "SHUFFLED WISDOM",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        letterSpacing = 2.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isDaily) MaterialTheme.colorScheme.primary else SecondaryText
+                    )
+                )
+                if (isDaily) {
+                    Text(
+                        text = "Swipe for more",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = SecondaryText.copy(alpha = 0.8f),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
                 }
             }
 
-            // Stationary Buttons Section
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(top = 24.dp, bottom = 16.dp),
-            ) {
-                Box(
-                    modifier = Modifier.height(48.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (!isDaily) {
-                        TextButton(
-                            onClick = {
-                                scope.launch { pagerState.animateScrollToPage(dailyIndexInShuffled) }
-                            },
-                        ) {
-                            Text("Back to Today's Wisdom", style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
+            // Quote Section
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "“",
+                    style = MaterialTheme.typography.displayLarge,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                    modifier = Modifier.align(Alignment.Start)
+                )
 
-                FilledTonalButton(
-                    onClick = onBrowseClick,
-                    shape = MaterialTheme.shapes.extraLarge,
-                    contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp)
-                ) {
-                    Text("Browse All Quotes", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = item.quote,
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        fontStyle = FontStyle.Italic,
+                        lineHeight = 40.sp,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 26.sp,
+                        color = PrimaryText
+                    ),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+
+                Text(
+                    text = "”",
+                    style = MaterialTheme.typography.displayLarge,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                    modifier = Modifier.align(Alignment.End)
+                )
+            }
+
+            // Author Section
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .alpha(0.9f)
+            ) {
+                AuthorAvatar(author = item.author, imageUrl = item.imageUrl, size = 40.dp)
+                
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column {
+                    Text(
+                        text = item.author,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            color = PrimaryText
+                        )
+                    )
+                    TextButton(
+                        onClick = onAboutClick,
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.height(24.dp)
+                    ) {
+                        Text(
+                            "Learn more",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                    }
                 }
             }
         }

@@ -5,17 +5,18 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
 ## 🚀 Features
 
 - **Dynamic Source**: Fetches quotes in real-time from a published Google Sheets CSV URL.
+- **Customizable Appearance**: Choose from four zen-inspired themes (Neutral, Scholarly Gold, Peaceful Sage, and Intellectual Blue) that persist across sessions.
 - **Manual Refresh & Cache Busting**: Instantly sync with the latest spreadsheet changes using the manual refresh button.
 - **Offline First**: Automatically caches the latest quotes to ensure the app works perfectly without an internet connection.
 - **Daily Notifications**: Receive a random dose of wisdom every morning via Android **WorkManager**. Tapping a notification launches the app directly.
 - **Discovery Tools**:
-    - **Interactive Pager**: Swipe through a shuffled deck of wisdom.
+    - **Interactive Pager**: Swipe through a shuffled deck of wisdom with haptic feedback and smooth scale/alpha transformations.
     - **Author Browser**: Explore the entire collection grouped by author with a high-performance `LazyColumn` interface.
     - **High-Res Author Portraits**: Beautiful, high-resolution close-ups in the "About" section powered by **Coil**.
     - **Smart Biographies**: Detailed "About the Author" sections with intelligent paragraph formatting that handles abbreviations (like *c. 470 BCE*) correctly.
 - **Visual Identity**:
-    - **Dynamic Avatars**: Every author is assigned a unique, color-coded circular avatar or a portrait for instant recognition.
-    - **Premium UI**: Refined typography, balanced negative space, and modern Material 3 components like `FilledTonalButton` and `ElevatedCard`.
+    - **Dynamic Avatars**: Every author is assigned a unique portrait or a color-coded circular avatar for instant recognition.
+    - **Premium UI**: Refined typography (26sp quotes), balanced negative space, and modern Material 3 components with high-contrast accessibility (WCAG AA compliant).
 
 ## 🛠️ Technical Stack
 
@@ -24,7 +25,7 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
 - **Architecture**: Modular functional approach with a centralized `QuoteRepository`.
 - **Background Tasks**: WorkManager for reliable daily notification scheduling.
 - **Networking**: Kotlin Coroutines with cache-busting timestamping.
-- **Storage**: `SharedPreferences` with Android KTX for efficient local caching.
+- **Storage**: `SharedPreferences` with Android KTX for efficient local caching of quotes and theme preferences.
 - **Permissions**: Fully compatible with Android 13+ (TIRAMISU) notification permission flows.
 
 ## 📦 Data Schema
