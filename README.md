@@ -15,7 +15,8 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
     - **High-Res Author Portraits**: Beautiful, high-resolution close-ups in the "About" section powered by **Coil**.
     - **Smart Biographies**: Detailed "About the Author" sections with intelligent paragraph formatting that handles abbreviations (like *c. 470 BCE*) correctly.
 - **Visual Identity**:
-    - **Dynamic Avatars**: Every author is assigned a unique portrait or a color-coded circular avatar for instant recognition.
+    - **Consistent Author Branding**: Every quote card automatically finds and displays the author's portrait by scanning the entire dataset.
+    - **Dynamic Avatars**: Fallback to color-coded circular avatars for authors without images.
     - **Premium UI**: Refined typography (26sp quotes), balanced negative space, and modern Material 3 components with high-contrast accessibility (WCAG AA compliant).
 
 ## 🛠️ Technical Stack

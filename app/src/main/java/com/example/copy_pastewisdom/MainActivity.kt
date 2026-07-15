@@ -780,8 +780,13 @@ fun QuoteDisplay(
             contentPadding = PaddingValues(vertical = 32.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) { page ->
+            val item = shuffledQuotes[page]
+            val authorImageUrlOnCard = remember(item.author, quotes) {
+                quotes.find { it.author == item.author && !it.imageUrl.isNullOrBlank() }?.imageUrl
+            }
             QuoteCard(
-                item = shuffledQuotes[page],
+                item = item,
+                authorImageUrl = authorImageUrlOnCard,
                 isDaily = page == dailyIndexInShuffled,
                 pagerState = pagerState,
                 page = page,
@@ -832,6 +837,7 @@ fun QuoteDisplay(
 @Composable
 fun QuoteCard(
     item: QuoteItem,
+    authorImageUrl: String?,
     isDaily: Boolean,
     pagerState: PagerState,
     page: Int,
@@ -916,7 +922,7 @@ fun QuoteCard(
                     .padding(top = 8.dp)
                     .alpha(0.9f)
             ) {
-                AuthorAvatar(author = item.author, imageUrl = item.imageUrl, size = 40.dp)
+                AuthorAvatar(author = item.author, imageUrl = authorImageUrl, size = 40.dp)
                 
                 Spacer(modifier = Modifier.width(12.dp))
 
