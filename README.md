@@ -12,8 +12,9 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
 - **Discovery Tools**:
     - **Interactive Pager**: Swipe through a shuffled deck of wisdom with haptic feedback and smooth scale/alpha transformations.
     - **Author Browser**: Explore the entire collection grouped by author with a high-performance `LazyColumn` interface.
-    - **High-Res Author Portraits**: Beautiful, high-resolution close-ups in the "About" section powered by **Coil**.
-    - **Smart Biographies**: Detailed "About the Author" sections with intelligent paragraph formatting that handles abbreviations (like *c. 470 BCE*) correctly.
+    - **Smart Biographies**: Detailed "About the Author" sections with intelligent paragraph formatting that handles abbreviations correctly.
+    - **Portrait Gallery**: High-resolution, full-screen image viewer with support for multiple portraits per author.
+    - **Interactive Zoom**: Advanced gesture support including pinch-to-zoom, panning, and smooth animated resets for portraits.
 - **Visual Identity**:
     - **Consistent Author Branding**: Every quote card automatically finds and displays the author's portrait by scanning the entire dataset.
     - **Dynamic Avatars**: Fallback to color-coded circular avatars for authors without images.
@@ -35,7 +36,7 @@ The app expects a published Google Sheets CSV with the following columns:
 1. **Author**: Name of the individual.
 2. **About**: A biography or description of the author.
 3. **Quote**: The text of the wisdom.
-4. **Image URL (Optional)**: A direct link to an author image (supports Wikimedia direct links and Google Drive share links).
+4. **Image URL (Optional)**: A direct link to an author image (supports Wikimedia direct links and Google Drive share links). Add multiple rows with the same author to provide multiple images for the gallery.
 
 ## 📸 Screenshots
 

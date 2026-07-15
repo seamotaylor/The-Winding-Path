@@ -21,6 +21,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -35,6 +37,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -99,6 +102,17 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
@@ -118,6 +132,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.Refresh
 
 
@@ -738,8 +753,10 @@ fun QuoteDisplay(
         quotes.find { (it.author == currentItem.author) && it.about.isNotBlank() }?.about ?: ""
     }
 
-    val authorImageUrl = remember(currentItem.author, quotes) {
-        quotes.find { it.author == currentItem.author && !it.imageUrl.isNullOrBlank() }?.imageUrl
+    val authorImageUrls = remember(currentItem.author, quotes) {
+        quotes.filter { it.author == currentItem.author && !it.imageUrl.isNullOrBlank() }
+            .map { it.imageUrl!! }
+            .distinct()
     }
 
     LaunchedEffect(externalSelectedQuote) {
@@ -759,7 +776,7 @@ fun QuoteDisplay(
             AuthorAboutContent(
                 author = currentItem.author,
                 about = authorAbout,
-                imageUrl = authorImageUrl,
+                imageUrls = authorImageUrls,
                 onClose = { showAboutDialog = false }
             )
         }
@@ -978,8 +995,10 @@ fun BrowseQuotesView(
         quotes.find { (it.author == selectedAuthor) && it.about.isNotBlank() }?.about ?: ""
     }
 
-    val currentAuthorImageUrl = remember(selectedAuthor, quotes) {
-        quotes.find { it.author == selectedAuthor && !it.imageUrl.isNullOrBlank() }?.imageUrl
+    val currentAuthorImageUrls = remember(selectedAuthor, quotes) {
+        quotes.filter { it.author == selectedAuthor && !it.imageUrl.isNullOrBlank() }
+            .map { it.imageUrl!! }
+            .distinct()
     }
 
     if (showAboutDialog && (selectedAuthor != null)) {
@@ -990,7 +1009,7 @@ fun BrowseQuotesView(
             AuthorAboutContent(
                 author = selectedAuthor!!,
                 about = currentAuthorAbout,
-                imageUrl = currentAuthorImageUrl,
+                imageUrls = currentAuthorImageUrls,
                 onClose = { showAboutDialog = false }
             )
         }
@@ -1125,9 +1144,138 @@ fun AuthorAvatar(author: String, imageUrl: String? = null, size: androidx.compos
 fun AuthorAboutContent(
     author: String,
     about: String,
-    imageUrl: String? = null,
+    imageUrls: List<String> = emptyList(),
     onClose: () -> Unit
 ) {
+    var showFullScreenImage by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    if (showFullScreenImage && imageUrls.isNotEmpty()) {
+        val imagePagerState = rememberPagerState { imageUrls.size }
+        Dialog(
+            onDismissRequest = { showFullScreenImage = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                HorizontalPager(
+                    state = imagePagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    // Disable paging when zoomed in to allow panning
+                    userScrollEnabled = true 
+                ) { page ->
+                    var scale by remember { mutableStateOf(1f) }
+                    var offset by remember { mutableStateOf(Offset.Zero) }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RectangleShape)
+                            .pointerInput(Unit) {
+                                awaitEachGesture {
+                                    do {
+                                        val event = awaitPointerEvent()
+                                        val zoomChange = event.calculateZoom()
+                                        val panChange = event.calculatePan()
+
+                                        // If we are zoomed in, or the user is starting a zoom gesture,
+                                        // consume the events so the Pager doesn't swipe.
+                                        if (scale > 1f || zoomChange != 1f) {
+                                            event.changes.forEach { it.consume() }
+                                            
+                                            scale = (scale * zoomChange).coerceIn(1f, 5f)
+                                            if (scale > 1f) {
+                                                offset += panChange
+                                            } else {
+                                                offset = Offset.Zero
+                                            }
+                                        }
+                                        // If scale is 1.0 and no zoom is happening, we don't consume,
+                                        // allowing the HorizontalPager to receive the swipe gesture.
+                                    } while (event.changes.any { it.pressed })
+                                }
+                            }
+                            .pointerInput(Unit) {
+                                detectTapGestures(onTap = { 
+                                    if (scale > 1f) {
+                                        scope.launch {
+                                            launch {
+                                                animate(initialValue = scale, targetValue = 1f) { value, _ ->
+                                                    scale = value
+                                                }
+                                            }
+                                            launch {
+                                                animate(
+                                                    initialValue = offset,
+                                                    targetValue = Offset.Zero,
+                                                    typeConverter = Offset.VectorConverter
+                                                ) { value, _ ->
+                                                    offset = value
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        showFullScreenImage = false 
+                                    }
+                                })
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(imageUrls[page])
+                                .addHeader("User-Agent", "CopyPasteWisdom/1.0 (https://github.com/seamotaylor/Copy-Paste-Wisdom) Coil/2.6.0")
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = author,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(16.dp)
+                                .graphicsLayer(
+                                    scaleX = scale,
+                                    scaleY = scale,
+                                    translationX = offset.x,
+                                    translationY = offset.y
+                                ),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
+                }
+                
+                // Indicators if more than one image
+                if (imageUrls.size > 1) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 32.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        repeat(imageUrls.size) { iteration ->
+                            val color = if (imagePagerState.currentPage == iteration) Color.White else Color.White.copy(alpha = 0.5f)
+                            Box(
+                                modifier = Modifier
+                                    .padding(2.dp)
+                                    .background(color, CircleShape)
+                                    .size(8.dp)
+                            )
+                        }
+                    }
+                }
+
+                IconButton(
+                    onClick = { showFullScreenImage = false },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                }
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1153,7 +1301,35 @@ fun AuthorAboutContent(
         Spacer(modifier = Modifier.height(16.dp))
 
         // Hero image / Closeup
-        AuthorAvatar(author = author, imageUrl = imageUrl, size = 120.dp)
+        Box(
+            modifier = Modifier.clickable(enabled = imageUrls.isNotEmpty()) { 
+                showFullScreenImage = true 
+            },
+            contentAlignment = Alignment.BottomEnd
+        ) {
+            AuthorAvatar(author = author, imageUrl = imageUrls.firstOrNull(), size = 120.dp)
+            
+            if (imageUrls.isNotEmpty()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .offset(x = (-4).dp, y = (-4).dp),
+                    tonalElevation = 4.dp,
+                    shadowElevation = 4.dp
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.ZoomIn,
+                            contentDescription = "Zoom",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
         
