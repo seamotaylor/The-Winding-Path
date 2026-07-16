@@ -16,7 +16,7 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
     - **Portrait Gallery**: High-resolution, full-screen image viewer with support for multiple portraits per author.
     - **Interactive Zoom**: Advanced gesture support including pinch-to-zoom, panning, and smooth animated resets for portraits.
 - **Visual Identity**:
-    - **Philosophical Symbolism**: Integrated "About" section in settings explaining the labyrinth as a metaphor for the pursuit of wisdom.
+    - **Philosophical Symbolism**: Integrated "About" section in settings explaining the labyrinth as a metaphor for the pursuit of wisdom. Click on the labyrinth icon in settings to view it in full screen.
     - **Consistent Author Branding**: Every quote card automatically finds and displays the author's portrait by scanning the entire dataset.
     - **Dynamic Avatars**: Fallback to color-coded circular avatars for authors without images.
     - **Premium UI**: Refined typography (26sp quotes), balanced negative space, and modern Material 3 components with high-contrast accessibility (WCAG AA compliant).

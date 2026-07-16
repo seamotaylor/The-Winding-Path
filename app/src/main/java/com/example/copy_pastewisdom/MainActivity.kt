@@ -588,6 +588,37 @@ fun SettingsContent(
     onToggleNotifications: (Boolean) -> Unit,
     onShowTimePicker: () -> Unit
 ) {
+    var showFullScreenIcon by remember { mutableStateOf(false) }
+
+    if (showFullScreenIcon) {
+        Dialog(
+            onDismissRequest = { showFullScreenIcon = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .clickable { showFullScreenIcon = false },
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = R.mipmap.ic_launcher,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    contentScale = ContentScale.Fit
+                )
+                
+                IconButton(
+                    onClick = { showFullScreenIcon = false },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                }
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -647,12 +678,13 @@ fun SettingsContent(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Image(
-                painter = painterResource(id = R.mipmap.ic_launcher),
+            AsyncImage(
+                model = R.mipmap.ic_launcher,
                 contentDescription = null,
                 modifier = Modifier
                     .size(64.dp)
                     .clip(RoundedCornerShape(12.dp))
+                    .clickable { showFullScreenIcon = true }
             )
             Spacer(modifier = Modifier.width(16.dp))
             Text(
