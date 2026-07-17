@@ -2,7 +2,10 @@
 package com.example.copy_pastewisdom
 
 import android.Manifest
+import android.app.AlarmManager
+import android.widget.Toast
 import android.app.PendingIntent
+import android.provider.Settings
 import android.content.Intent
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -21,7 +24,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateOffsetAsState
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -89,7 +96,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.util.lerp
 import kotlin.math.absoluteValue
 import androidx.core.app.ActivityCompat
@@ -110,6 +120,7 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.window.Dialog
@@ -117,13 +128,18 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.text.AnnotatedString
 import com.example.copy_pastewisdom.ui.theme.CopyPasteWisdomTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import java.net.URL
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
@@ -249,96 +265,186 @@ object QuoteRepository {
             .getString(KEY_THEME, WisdomTheme.Neutral.name)
         return try { WisdomTheme.valueOf(name!!) } catch (_: Exception) { WisdomTheme.Neutral }
     }
-}
 
-// --- SECTION 3: WORKER & NOTIFICATIONS ---
-class DailyQuoteWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result {
-        val quotes = QuoteRepository.getQuotesFromCache(applicationContext)
-        if (quotes.isNotEmpty()) {
-            val randomQuote = quotes.random()
-            showNotification(randomQuote)
+    private var globalQuotesCache: List<QuoteItem>? = null
+
+    private suspend fun fetchGlobalQuotes(): List<QuoteItem>? = withContext(Dispatchers.IO) {
+        if (globalQuotesCache != null) return@withContext globalQuotesCache
+        try {
+            // Using DummyJSON as it's more stable in 2026 than type.fit
+            val jsonText = URL("https://dummyjson.com/quotes?limit=1500").readText()
+            val root = org.json.JSONObject(jsonText)
+            val jsonArray = root.getJSONArray("quotes")
+            val list = mutableListOf<QuoteItem>()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                list.add(QuoteItem(
+                    author = obj.optString("author", "Unknown").trim(),
+                    quote = obj.optString("quote", ""),
+                    about = "EXTENDED ARCHIVE"
+                ))
+            }
+            globalQuotesCache = list
+            list
+        } catch (e: Exception) {
+            Log.e("QuoteRepository", "Error fetching global quotes", e)
+            null
         }
-        return Result.success()
     }
 
-    private fun showNotification(item: QuoteItem) {
-        val channelId = "daily_quote_channel"
+    suspend fun findQuoteByAuthor(authorName: String): QuoteItem? {
+        // Stage 1: Local Archive Search (Instant)
+        val allQuotes = fetchGlobalQuotes() 
+        if (allQuotes != null) {
+            val cleanName = authorName.trim()
+            val nameParts = cleanName.split(" ").filter { it.length > 2 }
+            
+            // Try exact match first
+            var matches = allQuotes.filter { 
+                it.author.contains(cleanName, ignoreCase = true) || 
+                cleanName.contains(it.author, ignoreCase = true) 
+            }
+            
+            // If no exact match, try matching parts of the name (e.g. "Spinoza" in "Baruch Spinoza")
+            if (matches.isEmpty() && nameParts.isNotEmpty()) {
+                matches = allQuotes.filter { quote ->
+                    nameParts.any { part -> quote.author.contains(part, ignoreCase = true) }
+                }
+            }
+            
+            if (matches.isNotEmpty()) return matches.random()
+        } else if (globalQuotesCache == null) {
+            // If archive failed to download entirely
+            return QuoteItem("System", "", "NETWORK_ERROR")
+        }
+
+        // Stage 2: Web discovery fallback (Deep Search)
+        return fetchZenQuote(authorName)
+    }
+
+    suspend fun findRandomArchiveQuote(): QuoteItem? {
+        val allQuotes = fetchGlobalQuotes() ?: return null
+        return if (allQuotes.isNotEmpty()) {
+            val random = allQuotes.random()
+            random.copy(about = "ARCHIVE DISCOVERY")
+        } else null
+    }
+
+    suspend fun fetchZenQuote(author: String? = null): QuoteItem? = withContext(Dispatchers.IO) {
+        var attempts = 0
+        val maxAttempts = if (author != null) 2 else 3 
         
-        // Create Notification Channel for API 26+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "Daily Wisdom"
-            val descriptionText = "Daily morning quotes"
-            val importance = NotificationManager.IMPORTANCE_DEFAULT
-            val channel = NotificationChannel(channelId, name, importance).apply {
-                description = descriptionText
+        while (attempts < maxAttempts) {
+            attempts++
+            try {
+                val urlString = if (author != null) {
+                    "https://zenquotes.io/api/quotes/author/${author.trim().lowercase().replace(" ", "%20")}"
+                } else {
+                    "https://zenquotes.io/api/random"
+                }
+                
+                val connection = URL(urlString).openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 8000
+                connection.readTimeout = 8000
+                // Use a more common User-Agent to avoid blocks
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+                
+                val responseCode = connection.responseCode
+                if (responseCode == 429) {
+                    if (attempts < maxAttempts) {
+                        kotlinx.coroutines.delay(1500)
+                        continue
+                    }
+                    return@withContext QuoteItem("System", "", "RATE_LIMIT")
+                }
+
+                val stream = if (responseCode >= 400) connection.errorStream else connection.inputStream
+                if (stream == null) continue
+                
+                val jsonText = stream.bufferedReader().use { it.readText() }
+                
+                if (jsonText.contains("Too many requests", ignoreCase = true)) {
+                    if (attempts < maxAttempts) {
+                        kotlinx.coroutines.delay(1500)
+                        continue
+                    }
+                    return@withContext QuoteItem("System", "", "RATE_LIMIT")
+                }
+
+                val jsonArray = JSONArray(jsonText)
+                if (jsonArray.length() > 0) {
+                    val obj = jsonArray.getJSONObject(0)
+                    val quoteText = obj.optString("q", "")
+                    val authorName = obj.optString("a", "Unknown")
+                    
+                    if (authorName == "zenquotes.io" || quoteText.contains("Too many requests", ignoreCase = true)) {
+                        if (attempts < maxAttempts) {
+                            kotlinx.coroutines.delay(1500)
+                            continue
+                        }
+                        return@withContext QuoteItem("System", "", "RATE_LIMIT")
+                    }
+
+                    return@withContext QuoteItem(
+                        author = authorName,
+                        quote = quoteText,
+                        about = "GLOBAL DISCOVERY",
+                        imageUrl = null
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("QuoteRepository", "Attempt $attempts failed: ${e.message}")
+                if (attempts == maxAttempts) return@withContext null
+                kotlinx.coroutines.delay(1000)
             }
-            val notificationManager: NotificationManager =
-                applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
         }
-
-        val intent = Intent(applicationContext, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        }
-        val pendingIntent: PendingIntent = PendingIntent.getActivity(
-            applicationContext, 
-            0, 
-            intent, 
-            PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val builder = NotificationCompat.Builder(applicationContext, channelId)
-            .setSmallIcon(R.mipmap.ic_launcher) // System launcher icon
-            .setContentTitle("From ${item.author}")
-            .setContentText("“${item.quote}”")
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-
-        with(NotificationManagerCompat.from(applicationContext)) {
-            if (ActivityCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                notify(1001, builder.build())
-            }
-        }
+        null
     }
 }
 
+// --- SECTION 3: SCHEDULING ---
 object NotificationScheduler {
-    private const val WORK_NAME = "DailyQuoteWork"
-
     fun scheduleDailyNotification(context: Context) {
         val (hour, minute) = QuoteRepository.getNotificationTime(context)
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
-            .build()
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        
+        val intent = Intent(context, AlarmReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
-        // Calculate delay until selected time
-        val currentDate = Calendar.getInstance()
-        val dueDate = Calendar.getInstance().apply {
+        val calendar = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, hour)
             set(Calendar.MINUTE, minute)
             set(Calendar.SECOND, 0)
         }
-        if (dueDate.before(currentDate)) {
-            dueDate.add(Calendar.HOUR_OF_DAY, 24)
+        
+        if (calendar.before(Calendar.getInstance())) {
+            calendar.add(Calendar.HOUR_OF_DAY, 24)
         }
-        val initialDelay = dueDate.timeInMillis - currentDate.timeInMillis
 
-        val dailyWorkRequest = PeriodicWorkRequestBuilder<DailyQuoteWorker>(24, TimeUnit.HOURS)
-            .setInitialDelay(initialDelay, TimeUnit.MILLISECONDS)
-            .setConstraints(constraints)
-            .build()
-
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            WORK_NAME,
-            ExistingPeriodicWorkPolicy.UPDATE,
-            dailyWorkRequest,
-        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (alarmManager.canScheduleExactAlarms()) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, calendar.timeInMillis, pendingIntent)
+            } else {
+                // Fallback to inexact if permission not granted
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, calendar.timeInMillis, pendingIntent)
+            }
+        } else {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, calendar.timeInMillis, pendingIntent)
+        }
     }
 
     fun cancelDailyNotification(context: Context) {
-        WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, AlarmReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, 0, intent, PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (pendingIntent != null) {
+            alarmManager.cancel(pendingIntent)
+            pendingIntent.cancel()
+        }
     }
 }
 
@@ -429,7 +535,7 @@ fun MainScreen(context: Context, currentTheme: WisdomTheme, onThemeChange: (Wisd
         },
         notificationTime.first,
         notificationTime.second,
-        false // 24 hour mode false -> AM/PM
+        true // 24 hour mode true
     )
 
     suspend fun fetchQuotes() {
@@ -580,6 +686,85 @@ fun WisdomTopBar(onRefresh: () -> Unit, onSettings: () -> Unit) {
 }
 
 @Composable
+fun AnimatedZoomDialog(
+    onDismissRequest: () -> Unit,
+    startRect: Rect? = null,
+    content: @Composable (scale: Float, alpha: Float, offset: Offset, dismiss: () -> Unit) -> Unit
+) {
+    var isVisible by remember { mutableStateOf(false) }
+    var isExiting by remember { mutableStateOf(false) }
+
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val screenWidth = with(density) { configuration.screenWidthDp.dp.toPx() }
+    val screenHeight = with(density) { configuration.screenHeightDp.dp.toPx() }
+
+    // Calculate initial scale and offset to match startRect
+    val initialScale = if (startRect != null) {
+        (startRect.width / screenWidth).coerceAtLeast(startRect.height / screenHeight)
+    } else 0.4f
+
+    val initialOffset = if (startRect != null) {
+        Offset(
+            x = startRect.center.x - (screenWidth / 2),
+            y = startRect.center.y - (screenHeight / 2)
+        )
+    } else Offset.Zero
+
+    val scale by animateFloatAsState(
+        targetValue = if (isVisible && !isExiting) 1f else initialScale,
+        animationSpec = if (!isExiting) {
+            spring(
+                dampingRatio = Spring.DampingRatioLowBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            )
+        } else {
+            tween(durationMillis = 200)
+        },
+        label = "scale",
+        finishedListener = { if (isExiting) onDismissRequest() }
+    )
+
+    val offset by animateOffsetAsState(
+        targetValue = if (isVisible && !isExiting) Offset.Zero else initialOffset,
+        animationSpec = if (!isExiting) {
+            spring(
+                dampingRatio = Spring.DampingRatioLowBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            )
+        } else {
+            tween(durationMillis = 200)
+        },
+        label = "offset"
+    )
+
+    val alpha by animateFloatAsState(
+        targetValue = if (isVisible && !isExiting) 1f else 0f,
+        animationSpec = tween(durationMillis = if (isExiting) 150 else 250),
+        label = "alpha"
+    )
+
+    LaunchedEffect(Unit) {
+        isVisible = true
+    }
+
+    Dialog(
+        onDismissRequest = { isExiting = true },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = alpha))
+                .clickable { isExiting = true },
+            contentAlignment = Alignment.Center
+        ) {
+            content(scale, alpha, offset) { isExiting = true }
+        }
+    }
+}
+
+@Composable
 fun SettingsContent(
     notificationsEnabled: Boolean,
     notificationTime: Pair<Int, Int>,
@@ -589,29 +774,36 @@ fun SettingsContent(
     onShowTimePicker: () -> Unit
 ) {
     var showFullScreenIcon by remember { mutableStateOf(false) }
+    var iconRect by remember { mutableStateOf<Rect?>(null) }
 
     if (showFullScreenIcon) {
-        Dialog(
+        AnimatedZoomDialog(
             onDismissRequest = { showFullScreenIcon = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
-                    .clickable { showFullScreenIcon = false },
-                contentAlignment = Alignment.Center
-            ) {
+            startRect = iconRect
+        ) { scale, alpha, offset, dismiss ->
+            Box(contentAlignment = Alignment.Center) {
                 AsyncImage(
                     model = R.mipmap.ic_launcher,
                     contentDescription = null,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .graphicsLayer(
+                            scaleX = scale, 
+                            scaleY = scale, 
+                            alpha = alpha,
+                            translationX = offset.x,
+                            translationY = offset.y
+                        ),
                     contentScale = ContentScale.Fit
                 )
-                
+
                 IconButton(
-                    onClick = { showFullScreenIcon = false },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+                    onClick = dismiss,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .alpha(alpha)
                 ) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                 }
@@ -659,6 +851,34 @@ fun SettingsContent(
             onClick = onShowTimePicker
         )
 
+        // Android 13+ Exact Alarm Permission Check
+        if (notificationsEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val alarmManager = LocalContext.current.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            if (!alarmManager.canScheduleExactAlarms()) {
+                val context = LocalContext.current
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Timing might be inexact due to system restrictions.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(onClick = {
+                        context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
+                    }) {
+                        Text("Fix Now")
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
         
         HorizontalDivider(
@@ -683,6 +903,10 @@ fun SettingsContent(
                 contentDescription = null,
                 modifier = Modifier
                     .size(64.dp)
+                    .onGloballyPositioned { coordinates ->
+                        val position = coordinates.positionInWindow()
+                        iconRect = Rect(position, coordinates.size.toSize())
+                    }
                     .clip(RoundedCornerShape(12.dp))
                     .clickable { showFullScreenIcon = true }
             )
@@ -764,14 +988,9 @@ fun NotificationSettingsRow(enabled: Boolean, onToggle: (Boolean) -> Unit) {
 
 @Composable
 fun TimeSettingsRow(hour: Int, minute: Int, onClick: () -> Unit) {
-    val amPm = if (hour < 12) "AM" else "PM"
-    val displayHour = when {
-        hour == 0 -> 12
-        hour > 12 -> hour - 12
-        else -> hour
-    }
+    val displayHour = hour.toString().padStart(2, '0')
     val displayMinute = minute.toString().padStart(2, '0')
-    val timeString = "$displayHour:$displayMinute $amPm"
+    val timeString = "$displayHour:$displayMinute"
 
     Row(
         modifier = Modifier
@@ -805,8 +1024,17 @@ fun QuoteDisplay(
         shuffledQuotes.indexOf(dailyQuote).coerceAtLeast(0)
     }
 
-    val pagerState = rememberPagerState(initialPage = dailyIndexInShuffled) { shuffledQuotes.size }
+    val infinitePageCount = 1000000
+    val initialPage = remember(shuffledQuotes, dailyIndexInShuffled) {
+        if (shuffledQuotes.isEmpty()) 0 
+        else (infinitePageCount / 2) - ((infinitePageCount / 2) % shuffledQuotes.size) + dailyIndexInShuffled
+    }
+
+    val pagerState = rememberPagerState(initialPage = initialPage) { 
+        if (shuffledQuotes.isEmpty()) 0 else infinitePageCount 
+    }
     val scope = rememberCoroutineScope()
+    val aboutSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showAboutDialog by remember { mutableStateOf(value = false) }
     val haptic = LocalHapticFeedback.current
 
@@ -814,8 +1042,8 @@ fun QuoteDisplay(
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
 
-    val currentItem = shuffledQuotes[pagerState.currentPage]
-    val isDaily = pagerState.currentPage == dailyIndexInShuffled
+    val currentItem = shuffledQuotes[pagerState.currentPage % shuffledQuotes.size]
+    val isDaily = (pagerState.currentPage % shuffledQuotes.size) == dailyIndexInShuffled
 
     val authorAbout = remember(currentItem.author, quotes) {
         quotes.find { (it.author == currentItem.author) && it.about.isNotBlank() }?.about ?: ""
@@ -829,9 +1057,10 @@ fun QuoteDisplay(
 
     LaunchedEffect(externalSelectedQuote) {
         externalSelectedQuote?.let { selected ->
-            val index = shuffledQuotes.indexOf(selected)
-            if (index >= 0) {
-                pagerState.scrollToPage(index)
+            val indexInList = shuffledQuotes.indexOf(selected)
+            if (indexInList >= 0) {
+                val currentBase = pagerState.currentPage - (pagerState.currentPage % shuffledQuotes.size)
+                pagerState.scrollToPage(currentBase + indexInList)
             }
         }
     }
@@ -839,13 +1068,17 @@ fun QuoteDisplay(
     if (showAboutDialog) {
         ModalBottomSheet(
             onDismissRequest = { showAboutDialog = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            sheetState = aboutSheetState
         ) {
             AuthorAboutContent(
                 author = currentItem.author,
                 about = authorAbout,
                 imageUrls = authorImageUrls,
-                onClose = { showAboutDialog = false }
+                onClose = { 
+                    scope.launch { aboutSheetState.hide() }.invokeOnCompletion {
+                        showAboutDialog = false
+                    }
+                }
             )
         }
     }
@@ -865,14 +1098,15 @@ fun QuoteDisplay(
             contentPadding = PaddingValues(vertical = 32.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) { page ->
-            val item = shuffledQuotes[page]
+            val actualPage = page % shuffledQuotes.size
+            val item = shuffledQuotes[actualPage]
             val authorImageUrlOnCard = remember(item.author, quotes) {
                 quotes.find { it.author == item.author && !it.imageUrl.isNullOrBlank() }?.imageUrl
             }
             QuoteCard(
                 item = item,
                 authorImageUrl = authorImageUrlOnCard,
-                isDaily = page == dailyIndexInShuffled,
+                isDaily = actualPage == dailyIndexInShuffled,
                 pagerState = pagerState,
                 page = page,
                 onAboutClick = { showAboutDialog = true }
@@ -887,7 +1121,10 @@ fun QuoteDisplay(
             if (!isDaily) {
                 TextButton(
                     onClick = {
-                        scope.launch { pagerState.animateScrollToPage(dailyIndexInShuffled) }
+                        scope.launch { 
+                            val currentBase = pagerState.currentPage - (pagerState.currentPage % shuffledQuotes.size)
+                            pagerState.animateScrollToPage(currentBase + dailyIndexInShuffled) 
+                        }
                     },
                     modifier = Modifier.padding(bottom = 16.dp)
                 ) {
@@ -1048,12 +1285,23 @@ fun BrowseQuotesView(
         quotes.asSequence().map { it.author }.distinct().sorted().toList() 
     }
     var selectedAuthor by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val aboutSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showAboutDialog by remember { mutableStateOf(value = false) }
+    
+    // External Quote States
+    var luckyQuote by remember { mutableStateOf<QuoteItem?>(null) }
+    var authorExternalQuote by remember { mutableStateOf<QuoteItem?>(null) }
+    var isFetchingLucky by remember { mutableStateOf(false) }
+    var isFetchingAuthor by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
 
     // System Back Press Handling
     BackHandler {
         if (selectedAuthor != null) {
             selectedAuthor = null
+            authorExternalQuote = null
         } else {
             onBack()
         }
@@ -1072,13 +1320,17 @@ fun BrowseQuotesView(
     if (showAboutDialog && (selectedAuthor != null)) {
         ModalBottomSheet(
             onDismissRequest = { showAboutDialog = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            sheetState = aboutSheetState
         ) {
             AuthorAboutContent(
                 author = selectedAuthor!!,
                 about = currentAuthorAbout,
                 imageUrls = currentAuthorImageUrls,
-                onClose = { showAboutDialog = false }
+                onClose = { 
+                    scope.launch { aboutSheetState.hide() }.invokeOnCompletion {
+                        showAboutDialog = false
+                    }
+                }
             )
         }
     }
@@ -1101,6 +1353,85 @@ fun BrowseQuotesView(
         Spacer(modifier = Modifier.height(8.dp))
 
         if (selectedAuthor == null) {
+            // Header for Lucky Quote
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Discover New Wisdom",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Button(
+                    onClick = {
+                        scope.launch {
+                            isFetchingLucky = true
+                            val result = QuoteRepository.fetchZenQuote()
+                            if (result != null) {
+                                if (result.quote == "RATE_LIMIT") {
+                                    Toast.makeText(context, "API Cooldown: Please wait 30 seconds", Toast.LENGTH_LONG).show()
+                                } else {
+                                    luckyQuote = result
+                                }
+                            } else {
+                                // Fail-safe: Pull from local archive instead of showing error
+                                val fallback = QuoteRepository.findRandomArchiveQuote()
+                                if (fallback != null) {
+                                    luckyQuote = fallback
+                                    Toast.makeText(context, "Using archived discovery (web offline)", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Connection lost. Try again later.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            isFetchingLucky = false
+                        }
+                    },
+                    enabled = !isFetchingLucky,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    if (isFetchingLucky) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                    } else {
+                        Text("I'm Feeling Lucky")
+                    }
+                }
+            }
+
+            luckyQuote?.let { item ->
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    onClick = { 
+                        clipboardManager.setText(AnnotatedString("“${item.quote}” — ${item.author}"))
+                        Toast.makeText(context, "Quote copied to clipboard", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "“${item.quote}”",
+                            style = MaterialTheme.typography.bodyLarge.copy(fontStyle = FontStyle.Italic)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            AuthorAvatar(author = item.author, size = 24.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "— ${item.author}", style = MaterialTheme.typography.labelLarge)
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text(
+                                text = item.about,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(authors) { author ->
                     val authorImageUrl = remember(author, quotes) {
@@ -1127,17 +1458,84 @@ fun BrowseQuotesView(
                 }
             }
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { selectedAuthor = null }) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = { 
+                    selectedAuthor = null 
+                    authorExternalQuote = null
+                }) {
                     Text("← Back to Authors")
                 }
+                Spacer(modifier = Modifier.weight(1f))
                 if (currentAuthorAbout.isNotBlank()) {
-                    Spacer(modifier = Modifier.weight(1f))
-                    Button(onClick = { showAboutDialog = true }) {
+                    TextButton(onClick = { showAboutDialog = true }) {
                         Text("About Author")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Button(
+                    onClick = {
+                        scope.launch {
+                            isFetchingAuthor = true
+                            val result = QuoteRepository.findQuoteByAuthor(selectedAuthor!!)
+                            if (result != null) {
+                                when (result.quote) {
+                                    "NETWORK_ERROR" -> {
+                                        Toast.makeText(context, "Connection error. Check your internet.", Toast.LENGTH_SHORT).show()
+                                    }
+                                    "RATE_LIMIT" -> {
+                                        Toast.makeText(context, "API Cooldown: Please wait 30 seconds", Toast.LENGTH_LONG).show()
+                                    }
+                                    else -> {
+                                        authorExternalQuote = result
+                                    }
+                                }
+                            } else {
+                                Toast.makeText(context, "No extra wisdom found online for this author.", Toast.LENGTH_SHORT).show()
+                            }
+                            isFetchingAuthor = false
+                        }
+                    },
+                    enabled = !isFetchingAuthor,
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    if (isFetchingAuthor) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                    } else {
+                        Text("Fetch More", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
+
+            authorExternalQuote?.let { item ->
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
+                    onClick = { 
+                        clipboardManager.setText(AnnotatedString("“${item.quote}” — ${item.author}"))
+                        Toast.makeText(context, "Quote copied to clipboard", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "“${item.quote}”",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic)
+                            )
+                            Text(
+                                text = item.about,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                        IconButton(onClick = { authorExternalQuote = null }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 val authorQuotes = quotes.filter { it.author == selectedAuthor }
                 items(authorQuotes) { item ->
@@ -1216,28 +1614,42 @@ fun AuthorAboutContent(
     onClose: () -> Unit
 ) {
     var showFullScreenImage by remember { mutableStateOf(false) }
+    var portraitRect by remember { mutableStateOf<Rect?>(null) }
     val scope = rememberCoroutineScope()
 
     if (showFullScreenImage && imageUrls.isNotEmpty()) {
-        val imagePagerState = rememberPagerState { imageUrls.size }
-        Dialog(
+        val infiniteImageCount = 1000000
+        val initialImagePage = remember(imageUrls) {
+            if (imageUrls.size <= 1) 0
+            else (infiniteImageCount / 2) - ((infiniteImageCount / 2) % imageUrls.size)
+        }
+        val imagePagerState = rememberPagerState(initialPage = initialImagePage) { 
+            if (imageUrls.size > 1) infiniteImageCount else imageUrls.size 
+        }
+        AnimatedZoomDialog(
             onDismissRequest = { showFullScreenImage = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
+            startRect = portraitRect
+        ) { scale, alpha, offset, dismiss ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black),
+                    .graphicsLayer(
+                        scaleX = scale, 
+                        scaleY = scale, 
+                        alpha = alpha,
+                        translationX = offset.x,
+                        translationY = offset.y
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 HorizontalPager(
                     state = imagePagerState,
                     modifier = Modifier.fillMaxSize(),
-                    // Disable paging when zoomed in to allow panning
                     userScrollEnabled = true 
                 ) { page ->
-                    var scale by remember { mutableStateOf(1f) }
-                    var offset by remember { mutableStateOf(Offset.Zero) }
+                    val actualPage = page % imageUrls.size
+                    var itemScale by remember { mutableStateOf(1f) }
+                    var itemOffset by remember { mutableStateOf(Offset.Zero) }
 
                     Box(
                         modifier = Modifier
@@ -1250,44 +1662,40 @@ fun AuthorAboutContent(
                                         val zoomChange = event.calculateZoom()
                                         val panChange = event.calculatePan()
 
-                                        // If we are zoomed in, or the user is starting a zoom gesture,
-                                        // consume the events so the Pager doesn't swipe.
-                                        if (scale > 1f || zoomChange != 1f) {
+                                        if (itemScale > 1f || zoomChange != 1f) {
                                             event.changes.forEach { it.consume() }
                                             
-                                            scale = (scale * zoomChange).coerceIn(1f, 5f)
-                                            if (scale > 1f) {
-                                                offset += panChange
+                                            itemScale = (itemScale * zoomChange).coerceIn(1f, 5f)
+                                            if (itemScale > 1f) {
+                                                itemOffset += panChange
                                             } else {
-                                                offset = Offset.Zero
+                                                itemOffset = Offset.Zero
                                             }
                                         }
-                                        // If scale is 1.0 and no zoom is happening, we don't consume,
-                                        // allowing the HorizontalPager to receive the swipe gesture.
                                     } while (event.changes.any { it.pressed })
                                 }
                             }
                             .pointerInput(Unit) {
                                 detectTapGestures(onTap = { 
-                                    if (scale > 1f) {
+                                    if (itemScale > 1f) {
                                         scope.launch {
                                             launch {
-                                                animate(initialValue = scale, targetValue = 1f) { value, _ ->
-                                                    scale = value
+                                                animate(initialValue = itemScale, targetValue = 1f) { value, _ ->
+                                                    itemScale = value
                                                 }
                                             }
                                             launch {
                                                 animate(
-                                                    initialValue = offset,
+                                                    initialValue = itemOffset,
                                                     targetValue = Offset.Zero,
                                                     typeConverter = Offset.VectorConverter
                                                 ) { value, _ ->
-                                                    offset = value
+                                                    itemOffset = value
                                                 }
                                             }
                                         }
                                     } else {
-                                        showFullScreenImage = false 
+                                        dismiss()
                                     }
                                 })
                             },
@@ -1295,7 +1703,7 @@ fun AuthorAboutContent(
                     ) {
                         AsyncImage(
                             model = ImageRequest.Builder(LocalContext.current)
-                                .data(imageUrls[page])
+                                .data(imageUrls[actualPage])
                                 .addHeader("User-Agent", "CopyPasteWisdom/1.0 (https://github.com/seamotaylor/Copy-Paste-Wisdom) Coil/2.6.0")
                                 .crossfade(true)
                                 .build(),
@@ -1304,17 +1712,16 @@ fun AuthorAboutContent(
                                 .fillMaxSize()
                                 .padding(16.dp)
                                 .graphicsLayer(
-                                    scaleX = scale,
-                                    scaleY = scale,
-                                    translationX = offset.x,
-                                    translationY = offset.y
+                                    scaleX = itemScale,
+                                    scaleY = itemScale,
+                                    translationX = itemOffset.x,
+                                    translationY = itemOffset.y
                                 ),
                             contentScale = ContentScale.Fit
                         )
                     }
                 }
                 
-                // Indicators if more than one image
                 if (imageUrls.size > 1) {
                     Row(
                         modifier = Modifier
@@ -1323,7 +1730,7 @@ fun AuthorAboutContent(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         repeat(imageUrls.size) { iteration ->
-                            val color = if (imagePagerState.currentPage == iteration) Color.White else Color.White.copy(alpha = 0.5f)
+                            val color = if ((imagePagerState.currentPage % imageUrls.size) == iteration) Color.White else Color.White.copy(alpha = 0.5f)
                             Box(
                                 modifier = Modifier
                                     .padding(2.dp)
@@ -1335,7 +1742,7 @@ fun AuthorAboutContent(
                 }
 
                 IconButton(
-                    onClick = { showFullScreenImage = false },
+                    onClick = dismiss,
                     modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
                 ) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
@@ -1370,9 +1777,14 @@ fun AuthorAboutContent(
 
         // Hero image / Closeup
         Box(
-            modifier = Modifier.clickable(enabled = imageUrls.isNotEmpty()) { 
-                showFullScreenImage = true 
-            },
+            modifier = Modifier
+                .onGloballyPositioned { coordinates ->
+                    val position = coordinates.positionInWindow()
+                    portraitRect = Rect(position, coordinates.size.toSize())
+                }
+                .clickable(enabled = imageUrls.isNotEmpty()) { 
+                    showFullScreenImage = true 
+                },
             contentAlignment = Alignment.BottomEnd
         ) {
             AuthorAvatar(author = author, imageUrl = imageUrls.firstOrNull(), size = 120.dp)

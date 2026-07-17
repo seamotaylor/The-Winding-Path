@@ -1,35 +1,42 @@
 # Copy-Paste Wisdom 📖✨
 
-A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This app serves as a clean, minimal interface for receiving daily inspiration directly from a Google Sheets-powered backend.
+A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This app serves as a clean, minimal interface for receiving daily inspiration directly from a curated Google Sheets backend, enhanced by global wisdom discovery engines.
 
-## 🚀 Features
+## 🚀 Key Features
 
-- **Dynamic Source**: Fetches quotes in real-time from a published Google Sheets CSV URL.
-- **Customizable Appearance**: Choose from four zen-inspired themes (Neutral, Scholarly Gold, Peaceful Sage, and Intellectual Blue) that persist across sessions.
-- **Manual Refresh & Cache Busting**: Instantly sync with the latest spreadsheet changes using the manual refresh button.
-- **Offline First**: Automatically caches the latest quotes to ensure the app works perfectly without an internet connection.
-- **Daily Notifications**: Receive a random dose of wisdom every morning via Android **WorkManager**. Tapping a notification launches the app directly.
-- **Discovery Tools**:
-    - **Interactive Pager**: Swipe through a shuffled deck of wisdom with haptic feedback and smooth scale/alpha transformations.
-    - **Author Browser**: Explore the entire collection grouped by author with a high-performance `LazyColumn` interface.
-    - **Smart Biographies**: Detailed "About the Author" sections with intelligent paragraph formatting that handles abbreviations correctly.
-    - **Portrait Gallery**: High-resolution, full-screen image viewer with support for multiple portraits per author.
-    - **Interactive Zoom**: Advanced gesture support including pinch-to-zoom, panning, and smooth animated resets for portraits.
-- **Visual Identity**:
-    - **Philosophical Symbolism**: Integrated "About" section in settings explaining the labyrinth as a metaphor for the pursuit of wisdom. Click on the labyrinth icon in settings to view it in full screen.
-    - **Consistent Author Branding**: Every quote card automatically finds and displays the author's portrait by scanning the entire dataset.
-    - **Dynamic Avatars**: Fallback to color-coded circular avatars for authors without images.
-    - **Premium UI**: Refined typography (26sp quotes), balanced negative space, and modern Material 3 components with high-contrast accessibility (WCAG AA compliant).
+### 🏮 Content & Curation
+- **Dynamic Google Sheets Sync**: Fetches quotes in real-time from a published CSV URL with manual refresh and cache-busting logic.
+- **Offline-First Architecture**: Automatically caches the latest quotes to ensure 100% functionality without an internet connection.
+- **Rich Biographies**: Detailed "About the Author" sections with intelligent paragraph formatting and portrait scanning across the entire dataset.
+
+### 🎡 Navigation & Experience
+- **Endless Quote Pager**: An infinitely looping shuffled deck of wisdom with haptic feedback and smooth scale/alpha transformations.
+- **Multi-Source Discovery Engine**:
+    - **Extended Archive**: Instant local search across ~1,500 famous quotes (via DummyJSON).
+    - **Global Discovery**: Deep-web fallback to the ZenQuotes API for niche authors like Baruch Spinoza.
+    - **"I'm Feeling Lucky"**: A randomizer for discovering new authors beyond your curated list.
+- **Quick Share**: Tap any discovered quote to instantly copy it to your clipboard in a professional format.
+
+### 🔔 Smart Notifications
+- **Exact 24-Hour Timing**: Migrated to `AlarmManager` for precise delivery, bypassing Android's "Doze" delays to hit your target (e.g., 05:00 AM) exactly.
+- **Rich Visuals**: Notifications include author portraits and a clean monochromatic "Book" silhouette for the status bar.
+- **Full-Text Expansion**: Uses `BigTextStyle` to allow reading the entire quote directly from the notification tray.
+- **Resilience**: Features boot-survival logic and an "Improve Timing" settings helper for Android 14+ permissions.
+
+### 🎨 Premium UI/UX
+- **Burst Animation**: Custom "Shared Element" effect where full-screen images physically grow out of the thumbnails you tap and shrink back on dismissal.
+- **Bouncy Interaction**: Uses Spring physics for organic, responsive feeling UI transitions.
+- **Portrait Gallery**: High-resolution viewer with support for multiple images per author, pinch-to-zoom, and panning gestures.
+- **Zen Themes**: Four custom themes (Neutral, Scholarly, Peaceful, Intellectual) that persist across sessions.
 
 ## 🛠️ Technical Stack
 
 - **UI**: Jetpack Compose (Material 3)
-- **Image Loading**: **Coil** with custom User-Agent headers for reliable sourcing from Wikimedia and Google Drive.
-- **Architecture**: Modular functional approach with a centralized `QuoteRepository`.
-- **Background Tasks**: WorkManager for reliable daily notification scheduling.
-- **Networking**: Kotlin Coroutines with cache-busting timestamping.
-- **Storage**: `SharedPreferences` with Android KTX for efficient local caching of quotes and theme preferences.
-- **Permissions**: Fully compatible with Android 13+ (TIRAMISU) notification permission flows.
+- **Networking**: `HttpURLConnection` with Coroutines and robust retry logic.
+- **Image Loading**: **Coil** with custom User-Agent headers for Wikimedia and Google Drive compatibility.
+- **Scheduling**: `AlarmManager` for high-precision time-based triggers.
+- **Storage**: `SharedPreferences` with Android KTX.
+- **Parsing**: `org.json` for lightweight, reliable API interaction.
 
 ## 📦 Data Schema
 
@@ -38,10 +45,6 @@ The app expects a published Google Sheets CSV with the following columns:
 2. **About**: A biography or description of the author.
 3. **Quote**: The text of the wisdom.
 4. **Image URL (Optional)**: A direct link to an author image (supports Wikimedia direct links and Google Drive share links). Add multiple rows with the same author to provide multiple images for the gallery.
-
-## 📸 Screenshots
-
-*(Add your screenshots here!)*
 
 ## 📝 License
 
