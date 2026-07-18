@@ -48,10 +48,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -69,6 +74,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -79,6 +85,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,6 +97,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -102,6 +110,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.util.lerp
 import kotlin.math.absoluteValue
+import kotlin.random.Random
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -141,8 +150,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.net.URL
+import java.text.Normalizer
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
+import java.util.regex.Pattern
 
 // Add this for standard icons if not available
 import androidx.compose.material.icons.Icons
@@ -152,6 +163,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ArrowUpward
 
 
 // --- SECTION 1: DATA MODELS ---
@@ -266,21 +279,28 @@ object QuoteRepository {
         return try { WisdomTheme.valueOf(name!!) } catch (_: Exception) { WisdomTheme.Neutral }
     }
 
+    fun normalizeAccents(text: String): String {
+        val temp = Normalizer.normalize(text, Normalizer.Form.NFD)
+        val pattern = Pattern.compile("\\p{InCombiningDiacriticalMarks}+")
+        return pattern.matcher(temp).replaceAll("").lowercase().trim()
+    }
+
     private var globalQuotesCache: List<QuoteItem>? = null
 
     private suspend fun fetchGlobalQuotes(): List<QuoteItem>? = withContext(Dispatchers.IO) {
         if (globalQuotesCache != null) return@withContext globalQuotesCache
         try {
-            // Using DummyJSON as it's more stable in 2026 than type.fit
-            val jsonText = URL("https://dummyjson.com/quotes?limit=1500").readText()
-            val root = org.json.JSONObject(jsonText)
-            val jsonArray = root.getJSONArray("quotes")
+            // Using a massive 30k+ quote archive from GitHub (dwyl)
+            // This replaces the smaller DummyJSON and restricted ZenQuotes searches
+            val jsonText = URL("https://raw.githubusercontent.com/dwyl/quotes/master/quotes.json").readText()
+            val jsonArray = JSONArray(jsonText)
             val list = mutableListOf<QuoteItem>()
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
+                val rawAuthor = obj.optString("author", "Unknown").trim()
                 list.add(QuoteItem(
-                    author = obj.optString("author", "Unknown").trim(),
-                    quote = obj.optString("quote", ""),
+                    author = if (rawAuthor == "type.fit") "Unknown" else rawAuthor,
+                    quote = obj.optString("text", ""),
                     about = "EXTENDED ARCHIVE"
                 ))
             }
@@ -292,36 +312,6 @@ object QuoteRepository {
         }
     }
 
-    suspend fun findQuoteByAuthor(authorName: String): QuoteItem? {
-        // Stage 1: Local Archive Search (Instant)
-        val allQuotes = fetchGlobalQuotes() 
-        if (allQuotes != null) {
-            val cleanName = authorName.trim()
-            val nameParts = cleanName.split(" ").filter { it.length > 2 }
-            
-            // Try exact match first
-            var matches = allQuotes.filter { 
-                it.author.contains(cleanName, ignoreCase = true) || 
-                cleanName.contains(it.author, ignoreCase = true) 
-            }
-            
-            // If no exact match, try matching parts of the name (e.g. "Spinoza" in "Baruch Spinoza")
-            if (matches.isEmpty() && nameParts.isNotEmpty()) {
-                matches = allQuotes.filter { quote ->
-                    nameParts.any { part -> quote.author.contains(part, ignoreCase = true) }
-                }
-            }
-            
-            if (matches.isNotEmpty()) return matches.random()
-        } else if (globalQuotesCache == null) {
-            // If archive failed to download entirely
-            return QuoteItem("System", "", "NETWORK_ERROR")
-        }
-
-        // Stage 2: Web discovery fallback (Deep Search)
-        return fetchZenQuote(authorName)
-    }
-
     suspend fun findRandomArchiveQuote(): QuoteItem? {
         val allQuotes = fetchGlobalQuotes() ?: return null
         return if (allQuotes.isNotEmpty()) {
@@ -330,18 +320,30 @@ object QuoteRepository {
         } else null
     }
 
-    suspend fun fetchZenQuote(author: String? = null): QuoteItem? = withContext(Dispatchers.IO) {
+    suspend fun getAllArchiveAuthors(): List<String> = withContext(Dispatchers.IO) {
+        val allQuotes = fetchGlobalQuotes() ?: return@withContext emptyList()
+        allQuotes.asSequence()
+            .map { it.author }
+            .filter { it.isNotBlank() && it != "Unknown" }
+            .distinct()
+            .sorted()
+            .toList()
+    }
+
+    suspend fun getArchiveQuotesForAuthor(authorName: String): List<QuoteItem> = withContext(Dispatchers.IO) {
+        val allQuotes = fetchGlobalQuotes() ?: return@withContext emptyList()
+        val normalizedTarget = normalizeAccents(authorName)
+        allQuotes.filter { normalizeAccents(it.author) == normalizedTarget }
+    }
+
+    suspend fun fetchZenQuote(): QuoteItem? = withContext(Dispatchers.IO) {
         var attempts = 0
-        val maxAttempts = if (author != null) 2 else 3 
+        val maxAttempts = 3
         
         while (attempts < maxAttempts) {
             attempts++
             try {
-                val urlString = if (author != null) {
-                    "https://zenquotes.io/api/quotes/author/${author.trim().lowercase().replace(" ", "%20")}"
-                } else {
-                    "https://zenquotes.io/api/random"
-                }
+                val urlString = "https://zenquotes.io/api/random"
                 
                 val connection = URL(urlString).openConnection() as java.net.HttpURLConnection
                 connection.connectTimeout = 8000
@@ -1019,7 +1021,11 @@ fun QuoteDisplay(
     val dayOfYear = Calendar.getInstance()[Calendar.DAY_OF_YEAR]
     val dailyQuote = quotes[dayOfYear % quotes.size]
 
-    val shuffledQuotes = remember(quotes) { quotes.shuffled() }
+    var reshuffleSeed by remember { mutableStateOf(0) }
+
+    val shuffledQuotes = remember(quotes, reshuffleSeed) { 
+        if (quotes.isEmpty()) emptyList() else quotes.shuffled(kotlin.random.Random(reshuffleSeed)) 
+    }
     val dailyIndexInShuffled = remember(shuffledQuotes, dailyQuote) {
         shuffledQuotes.indexOf(dailyQuote).coerceAtLeast(0)
     }
@@ -1121,9 +1127,15 @@ fun QuoteDisplay(
             if (!isDaily) {
                 TextButton(
                     onClick = {
-                        scope.launch { 
-                            val currentBase = pagerState.currentPage - (pagerState.currentPage % shuffledQuotes.size)
-                            pagerState.animateScrollToPage(currentBase + dailyIndexInShuffled) 
+                        val nextSeed = reshuffleSeed + 1
+                        val newShuffled = quotes.shuffled(kotlin.random.Random(nextSeed))
+                        val newDailyIndex = newShuffled.indexOf(dailyQuote).coerceAtLeast(0)
+                        
+                        reshuffleSeed = nextSeed
+                        
+                        scope.launch {
+                            val currentBase = pagerState.currentPage - (pagerState.currentPage % newShuffled.size)
+                            pagerState.animateScrollToPage(currentBase + newDailyIndex) 
                         }
                     },
                     modifier = Modifier.padding(bottom = 16.dp)
@@ -1183,7 +1195,8 @@ fun QuoteCard(
         Column(
             modifier = Modifier
                 .padding(32.dp)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
@@ -1241,30 +1254,32 @@ fun QuoteCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier
-                    .padding(top = 8.dp)
+                    .fillMaxWidth()
+                    .padding(top = 16.dp, start = 16.dp, end = 16.dp)
                     .alpha(0.9f)
             ) {
-                AuthorAvatar(author = item.author, imageUrl = authorImageUrl, size = 40.dp)
+                AuthorAvatar(author = item.author, imageUrl = authorImageUrl, size = 150.dp)
                 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(20.dp))
 
-                Column {
+                Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(
                         text = item.author,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontWeight = FontWeight.Bold,
                             color = PrimaryText
                         )
                     )
                     TextButton(
                         onClick = onAboutClick,
                         contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier.height(24.dp)
+                        modifier = Modifier.height(32.dp)
                     ) {
                         Text(
                             "Learn more",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = MaterialTheme.colorScheme.primary
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
                             )
                         )
                     }
@@ -1281,27 +1296,83 @@ fun BrowseQuotesView(
     onQuoteSelected: (QuoteItem) -> Unit,
     onBack: () -> Unit
 ) {
-    val authors = remember(quotes) { 
+    val curatedAuthors = remember(quotes) { 
         quotes.asSequence().map { it.author }.distinct().sorted().toList() 
     }
+    var showAllArchive by remember { mutableStateOf(false) }
+    var allArchiveAuthors by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isLoadingArchiveAuthors by remember { mutableStateOf(false) }
+
+    val fullAuthorList = remember(curatedAuthors, allArchiveAuthors, showAllArchive) {
+        if (showAllArchive) {
+            val merged = mutableMapOf<String, String>() // Map<NormalizedName, OriginalName>
+            
+            // Add archive authors first (lower priority)
+            allArchiveAuthors.forEach { name ->
+                merged[QuoteRepository.normalizeAccents(name)] = name
+            }
+            
+            // Overwrite with curated authors (higher priority for spelling/accents)
+            curatedAuthors.forEach { name ->
+                merged[QuoteRepository.normalizeAccents(name)] = name
+            }
+            
+            merged.values.sortedWith(String.CASE_INSENSITIVE_ORDER)
+        } else {
+            curatedAuthors
+        }
+    }
+
     var selectedAuthor by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val aboutSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showAboutDialog by remember { mutableStateOf(value = false) }
     
+    // Search & Navigation States
+    var searchQuery by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
     // External Quote States
     var luckyQuote by remember { mutableStateOf<QuoteItem?>(null) }
-    var authorExternalQuote by remember { mutableStateOf<QuoteItem?>(null) }
+    var authorArchiveQuotes by remember { mutableStateOf<List<QuoteItem>>(emptyList()) }
+    var isFetchingArchiveForAuthor by remember { mutableStateOf(false) }
     var isFetchingLucky by remember { mutableStateOf(false) }
-    var isFetchingAuthor by remember { mutableStateOf(false) }
+    var isScrubbing by remember { mutableStateOf(false) }
+    var scrubbingChar by remember { mutableStateOf("") }
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+
+    val filteredAuthorList = remember(fullAuthorList, searchQuery) {
+        if (searchQuery.isBlank()) {
+            fullAuthorList
+        } else {
+            fullAuthorList.filter { it.contains(searchQuery, ignoreCase = true) }
+        }
+    }
+
+    LaunchedEffect(showAllArchive) {
+        if (showAllArchive && allArchiveAuthors.isEmpty()) {
+            isLoadingArchiveAuthors = true
+            allArchiveAuthors = QuoteRepository.getAllArchiveAuthors()
+            isLoadingArchiveAuthors = false
+        }
+    }
+
+    LaunchedEffect(selectedAuthor) {
+        if (selectedAuthor != null) {
+            searchQuery = "" // Reset search when entering detail view
+            isFetchingArchiveForAuthor = true
+            authorArchiveQuotes = QuoteRepository.getArchiveQuotesForAuthor(selectedAuthor!!)
+            isFetchingArchiveForAuthor = false
+        } else {
+            authorArchiveQuotes = emptyList()
+        }
+    }
 
     // System Back Press Handling
     BackHandler {
         if (selectedAuthor != null) {
             selectedAuthor = null
-            authorExternalQuote = null
         } else {
             onBack()
         }
@@ -1350,118 +1421,256 @@ fun BrowseQuotesView(
             }
         }
 
+        if (selectedAuthor == null) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                placeholder = { Text("Search authors...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
 
         if (selectedAuthor == null) {
-            // Header for Lucky Quote
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Discover New Wisdom",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Button(
-                    onClick = {
-                        scope.launch {
-                            isFetchingLucky = true
-                            val result = QuoteRepository.fetchZenQuote()
-                            if (result != null) {
-                                if (result.quote == "RATE_LIMIT") {
-                                    Toast.makeText(context, "API Cooldown: Please wait 30 seconds", Toast.LENGTH_LONG).show()
-                                } else {
-                                    luckyQuote = result
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Header for Lucky Quote
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Discover New Wisdom",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    isFetchingLucky = true
+                                    val result = QuoteRepository.fetchZenQuote()
+                                    if (result != null) {
+                                        if (result.quote == "RATE_LIMIT") {
+                                            Toast.makeText(context, "API Cooldown: Please wait 30 seconds", Toast.LENGTH_LONG).show()
+                                        } else {
+                                            luckyQuote = result
+                                        }
+                                    } else {
+                                        // Fail-safe: Pull from local archive instead of showing error
+                                        val fallback = QuoteRepository.findRandomArchiveQuote()
+                                        if (fallback != null) {
+                                            luckyQuote = fallback
+                                            Toast.makeText(context, "Using archived discovery (web offline)", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Connection lost. Try again later.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    isFetchingLucky = false
                                 }
+                            },
+                            enabled = !isFetchingLucky,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            if (isFetchingLucky) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
                             } else {
-                                // Fail-safe: Pull from local archive instead of showing error
-                                val fallback = QuoteRepository.findRandomArchiveQuote()
-                                if (fallback != null) {
-                                    luckyQuote = fallback
-                                    Toast.makeText(context, "Using archived discovery (web offline)", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "Connection lost. Try again later.", Toast.LENGTH_SHORT).show()
+                                Text("I'm Feeling Lucky")
+                            }
+                        }
+                    }
+
+                    luckyQuote?.let { item ->
+                        ElevatedCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString("“${item.quote}” — ${item.author}"))
+                                Toast.makeText(context, "Quote copied to clipboard", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = "“${item.quote}”",
+                                    style = MaterialTheme.typography.bodyLarge.copy(fontStyle = FontStyle.Italic)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    AuthorAvatar(author = item.author, size = 24.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(text = "— ${item.author}", style = MaterialTheme.typography.labelLarge)
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    Text(
+                                        text = item.about,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
-                            isFetchingLucky = false
-                        }
-                    },
-                    enabled = !isFetchingLucky,
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    if (isFetchingLucky) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                    } else {
-                        Text("I'm Feeling Lucky")
-                    }
-                }
-            }
-
-            luckyQuote?.let { item ->
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    onClick = { 
-                        clipboardManager.setText(AnnotatedString("“${item.quote}” — ${item.author}"))
-                        Toast.makeText(context, "Quote copied to clipboard", Toast.LENGTH_SHORT).show()
-                    }
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "“${item.quote}”",
-                            style = MaterialTheme.typography.bodyLarge.copy(fontStyle = FontStyle.Italic)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            AuthorAvatar(author = item.author, size = 24.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = "— ${item.author}", style = MaterialTheme.typography.labelLarge)
-                            Spacer(modifier = Modifier.weight(1f))
-                            Text(
-                                text = item.about,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
                         }
                     }
-                }
-            }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(authors) { author ->
-                    val authorImageUrl = remember(author, quotes) {
-                        quotes.find { it.author == author }?.imageUrl
-                    }
-                    Surface(
-                        onClick = { selectedAuthor = author },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.medium
+                    // Toggle for Archive
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            AuthorAvatar(author = author, imageUrl = authorImageUrl, size = 40.dp)
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Text(
-                                text = author,
-                                style = MaterialTheme.typography.bodyLarge
-                            )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = "Extended Archive", style = MaterialTheme.typography.titleSmall)
+                            Text(text = "Browse 30,000+ global quotes", style = MaterialTheme.typography.labelSmall, color = SecondaryText)
+                        }
+                        if (isLoadingArchiveAuthors) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Switch(checked = showAllArchive, onCheckedChange = { showAllArchive = it })
                         }
                     }
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp))
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(end = if (showAllArchive && searchQuery.isBlank()) 32.dp else 0.dp)
+                        ) {
+                            items(filteredAuthorList) { author ->
+                                val authorImageUrl = remember(author, quotes) {
+                                    quotes.find { it.author == author }?.imageUrl
+                                }
+                                Surface(
+                                    onClick = { selectedAuthor = author },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = MaterialTheme.shapes.medium
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        AuthorAvatar(author = author, imageUrl = authorImageUrl, size = 40.dp)
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        Text(
+                                            text = author,
+                                            style = MaterialTheme.typography.bodyLarge
+                                        )
+                                    }
+                                }
+                                HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp))
+                            }
+                        }
+
+                        // Fast-Scroll Bar with Letter Bubble
+                        if (showAllArchive && searchQuery.isBlank() && filteredAuthorList.isNotEmpty()) {
+                            val totalItems = filteredAuthorList.size
+                            var trackHeight by remember { mutableStateOf(0f) }
+                            
+                            val scrollPercentage by remember(totalItems) {
+                                derivedStateOf {
+                                    if (totalItems == 0) 0f
+                                    else (listState.firstVisibleItemIndex.toFloat() / totalItems).coerceIn(0f, 1f)
+                                }
+                            }
+
+                            val handleHeightPx = with(LocalDensity.current) { 80.dp.toPx() }
+                            val bubbleSizePx = with(LocalDensity.current) { 80.dp.toPx() }
+
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .fillMaxHeight()
+                                    .width(32.dp)
+                                    .zIndex(1f)
+                                    .onGloballyPositioned { trackHeight = it.size.height.toFloat() }
+                                    .pointerInput(totalItems) {
+                                        detectVerticalDragGestures(
+                                            onDragStart = { isScrubbing = true },
+                                            onDragEnd = { isScrubbing = false },
+                                            onDragCancel = { isScrubbing = false }
+                                        ) { change, _ ->
+                                            val y = change.position.y
+                                            val percentage = (y / trackHeight).coerceIn(0f, 1f)
+                                            val index = (percentage * totalItems).toInt().coerceIn(0, totalItems - 1)
+                                            
+                                            scrubbingChar = filteredAuthorList.getOrNull(index)?.firstOrNull()?.uppercase()?.toString() ?: ""
+                                            
+                                            scope.launch { listState.scrollToItem(index) }
+                                        }
+                                    }
+                            ) {
+                                // Track
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .width(2.dp)
+                                        .align(Alignment.Center)
+                                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), CircleShape)
+                                )
+                                
+                                // Handle
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(80.dp)
+                                        .offset { 
+                                            IntOffset(0, (scrollPercentage * (trackHeight - handleHeightPx)).toInt()) 
+                                        }
+                                        .padding(horizontal = 8.dp)
+                                        .background(
+                                            color = if (isScrubbing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                                            shape = RoundedCornerShape(4.dp)
+                                        )
+                                )
+
+                                // Letter Bubble (Visible only while scrubbing - Moving with Handle)
+                                if (isScrubbing) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .offset {
+                                                IntOffset(
+                                                    -64.dp.toPx().toInt(),
+                                                    (scrollPercentage * (trackHeight - handleHeightPx)).toInt() - (bubbleSizePx / 2).toInt() + (handleHeightPx / 2).toInt()
+                                                )
+                                            }
+                                            .size(80.dp)
+                                            .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = scrubbingChar,
+                                            style = MaterialTheme.typography.headlineLarge.copy(
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 40.sp
+                                            ),
+                                            color = MaterialTheme.colorScheme.onPrimary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = { 
                     selectedAuthor = null 
-                    authorExternalQuote = null
                 }) {
                     Text("← Back to Authors")
                 }
@@ -1470,86 +1679,70 @@ fun BrowseQuotesView(
                     TextButton(onClick = { showAboutDialog = true }) {
                         Text("About Author")
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                }
-                Button(
-                    onClick = {
-                        scope.launch {
-                            isFetchingAuthor = true
-                            val result = QuoteRepository.findQuoteByAuthor(selectedAuthor!!)
-                            if (result != null) {
-                                when (result.quote) {
-                                    "NETWORK_ERROR" -> {
-                                        Toast.makeText(context, "Connection error. Check your internet.", Toast.LENGTH_SHORT).show()
-                                    }
-                                    "RATE_LIMIT" -> {
-                                        Toast.makeText(context, "API Cooldown: Please wait 30 seconds", Toast.LENGTH_LONG).show()
-                                    }
-                                    else -> {
-                                        authorExternalQuote = result
-                                    }
-                                }
-                            } else {
-                                Toast.makeText(context, "No extra wisdom found online for this author.", Toast.LENGTH_SHORT).show()
-                            }
-                            isFetchingAuthor = false
-                        }
-                    },
-                    enabled = !isFetchingAuthor,
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                ) {
-                    if (isFetchingAuthor) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                    } else {
-                        Text("Fetch More", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-            }
-
-            authorExternalQuote?.let { item ->
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
-                    onClick = { 
-                        clipboardManager.setText(AnnotatedString("“${item.quote}” — ${item.author}"))
-                        Toast.makeText(context, "Quote copied to clipboard", Toast.LENGTH_SHORT).show()
-                    }
-                ) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "“${item.quote}”",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic)
-                            )
-                            Text(
-                                text = item.about,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
-                        IconButton(onClick = { authorExternalQuote = null }) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp))
-                        }
-                    }
                 }
             }
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                val authorQuotes = quotes.filter { it.author == selectedAuthor }
-                items(authorQuotes) { item ->
-                    Surface(
-                        onClick = { onQuoteSelected(item) },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = MaterialTheme.shapes.medium
-                    ) {
+                val curatedForAuthor = quotes.filter { it.author == selectedAuthor }
+                
+                // Show Curated first
+                if (curatedForAuthor.isNotEmpty()) {
+                    item {
                         Text(
-                            text = "“${item.quote}”",
-                            modifier = Modifier.padding(16.dp),
-                            style = MaterialTheme.typography.bodyMedium
+                            "CURATED WISDOM", 
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(vertical = 8.dp)
                         )
+                    }
+                    items(curatedForAuthor) { item ->
+                        Surface(
+                            onClick = { onQuoteSelected(item) },
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = MaterialTheme.shapes.medium
+                        ) {
+                            Text(
+                                text = "“${item.quote}”",
+                                modifier = Modifier.padding(16.dp),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+
+                // Show Archive
+                if (authorArchiveQuotes.isNotEmpty()) {
+                    item {
+                        Text(
+                            "EXTENDED ARCHIVE", 
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+                        )
+                    }
+                    items(authorArchiveQuotes) { item ->
+                        Surface(
+                            onClick = { 
+                                clipboardManager.setText(AnnotatedString("“${item.quote}” — ${item.author}"))
+                                Toast.makeText(context, "Quote copied to clipboard", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            shape = MaterialTheme.shapes.medium
+                        ) {
+                            Text(
+                                text = "“${item.quote}”",
+                                modifier = Modifier.padding(16.dp),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                } else if (isFetchingArchiveForAuthor) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        }
                     }
                 }
             }

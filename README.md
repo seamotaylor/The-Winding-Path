@@ -1,42 +1,40 @@
 # Copy-Paste Wisdom 📖✨
 
-A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This app serves as a clean, minimal interface for receiving daily inspiration directly from a curated Google Sheets backend, enhanced by global wisdom discovery engines.
+A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This app serves as a clean, minimal interface for receiving daily inspiration directly from a curated Google Sheets backend, enhanced by a massive 30,000+ quote global library.
 
 ## 🚀 Key Features
 
 ### 🏮 Content & Curation
-- **Dynamic Google Sheets Sync**: Fetches quotes in real-time from a published CSV URL with manual refresh and cache-busting logic.
-- **Offline-First Architecture**: Automatically caches the latest quotes to ensure 100% functionality without an internet connection.
-- **Rich Biographies**: Detailed "About the Author" sections with intelligent paragraph formatting and portrait scanning across the entire dataset.
+- **Massive Discovery Engine**: Features an integrated **Extended Archive** of over 30,000 quotes. The engine uses a smart multi-stage search that prioritizes your curated collection while offering instant local search across history's greatest thinkers.
+- **Dynamic Google Sheets Sync**: Real-time synchronization with a published CSV backend, featuring manual refresh and intelligent cache-busting.
+- **Smart Deduplication**: Advanced accent normalization automatically merges authors with different diacritics (e.g., "Niccolo" and "Niccolò"), prioritizing your curated names and portraits.
+- **Offline-First Architecture**: Caches the entire 30k archive and curated list for a 100% functional experience without an internet connection.
 
 ### 🎡 Navigation & Experience
+- **Fast-Scroll Browser**: A high-performance navigation bar with a dynamic **Letter Bubble** that moves with your thumb, allowing you to zip through thousands of authors in seconds.
+- **Real-Time Search**: Instant filtering in the author browser with context-aware auto-reset logic.
 - **Endless Quote Pager**: An infinitely looping shuffled deck of wisdom with haptic feedback and smooth scale/alpha transformations.
-- **Multi-Source Discovery Engine**:
-    - **Extended Archive**: Instant local search across ~1,500 famous quotes (via DummyJSON).
-    - **Global Discovery**: Deep-web fallback to the ZenQuotes API for niche authors like Baruch Spinoza.
-    - **"I'm Feeling Lucky"**: A randomizer for discovering new authors beyond your curated list.
-- **Quick Share**: Tap any discovered quote to instantly copy it to your clipboard in a professional format.
+- **Fluid Resets**: The "Return to Today" feature includes deterministic reshuffling and a smooth, fast-scroll animation back to "Today's Wisdom."
 
 ### 🔔 Smart Notifications
-- **Exact 24-Hour Timing**: Migrated to `AlarmManager` for precise delivery, bypassing Android's "Doze" delays to hit your target (e.g., 05:00 AM) exactly.
-- **Rich Visuals**: Notifications include author portraits and a clean monochromatic "Book" silhouette for the status bar.
-- **Full-Text Expansion**: Uses `BigTextStyle` to allow reading the entire quote directly from the notification tray.
-- **Resilience**: Features boot-survival logic and an "Improve Timing" settings helper for Android 14+ permissions.
+- **Exact 24-Hour Timing**: High-precision delivery using `AlarmManager`, bypassing system "Doze" delays to hit your target time (e.g., 05:00) exactly.
+- **Rich Visuals**: Notifications feature author portraits, a clean monochromatic "Book" silhouette for the status bar, and `BigTextStyle` for full-quote expansion.
+- **Resilience**: Integrated boot-survival logic and an "Improve Timing" settings helper for Android 14+ permissions.
 
 ### 🎨 Premium UI/UX
-- **Burst Animation**: Custom "Shared Element" effect where full-screen images physically grow out of the thumbnails you tap and shrink back on dismissal.
-- **Bouncy Interaction**: Uses Spring physics for organic, responsive feeling UI transitions.
-- **Portrait Gallery**: High-resolution viewer with support for multiple images per author, pinch-to-zoom, and panning gestures.
+- **Hero Portraits**: Large **150dp** author portraits on the home screen paired with bold **headline typography** for a high-end editorial feel.
+- **Scrollable Wisdom**: Quote cards automatically handle long text with internal scrolling, ensuring author details are never clipped.
+- **Burst Animation**: Custom "Shared Element" effect where portraits physically grow out of thumbnails and shrink back on dismissal.
 - **Zen Themes**: Four custom themes (Neutral, Scholarly, Peaceful, Intellectual) that persist across sessions.
 
 ## 🛠️ Technical Stack
 
-- **UI**: Jetpack Compose (Material 3)
-- **Networking**: `HttpURLConnection` with Coroutines and robust retry logic.
-- **Image Loading**: **Coil** with custom User-Agent headers for Wikimedia and Google Drive compatibility.
-- **Scheduling**: `AlarmManager` for high-precision time-based triggers.
+- **UI**: Jetpack Compose (Material 3) with Spring physics and bouncy interactions.
+- **Networking**: `HttpURLConnection` with Coroutines and a robust multi-stage discovery fallback.
+- **Image Loading**: **Coil** with custom headers and large icon notification support.
+- **Scheduling**: `AlarmManager` for precise time-based triggers.
+- **Data**: `Normalizer` API for accent-insensitive author matching.
 - **Storage**: `SharedPreferences` with Android KTX.
-- **Parsing**: `org.json` for lightweight, reliable API interaction.
 
 ## 📦 Data Schema
 
@@ -44,7 +42,7 @@ The app expects a published Google Sheets CSV with the following columns:
 1. **Author**: Name of the individual.
 2. **About**: A biography or description of the author.
 3. **Quote**: The text of the wisdom.
-4. **Image URL (Optional)**: A direct link to an author image (supports Wikimedia direct links and Google Drive share links). Add multiple rows with the same author to provide multiple images for the gallery.
+4. **Image URL (Optional)**: A direct link to an author image (supports Wikimedia and Google Drive). Add multiple rows with the same author for a gallery.
 
 ## 📝 License
 
