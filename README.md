@@ -32,9 +32,9 @@ The app follows a modern, decoupled **Clean Architecture** to ensure stability a
 
 ## 🧪 Testing Suite
 
-Stability is guarded by a dual-layer automated testing strategy:
+Stability is guarded by a dual-layer automated testing strategy using the latest **AndroidX Test** and **Espresso** stacks:
 - **Unit Tests**: 7+ tests verifying the "fragile" core logic, including CSV parsing robustness (handling commas inside quotes) and name normalization.
-- **UI Tests (AndroidTest)**: Automated journey testing that verifies the "Golden Path"—launching, loading, and browser navigation—on real devices.
+- **UI Tests (AndroidTest)**: Automated journey testing that verifies the "Golden Path"—launching, loading, and browser navigation. Optimized with increased timeouts and robust semantic matching for reliable CI/CD execution.
 
 ## 🛠️ Technical Stack
 

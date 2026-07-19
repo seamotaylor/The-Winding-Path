@@ -1,0 +1,5 @@
+- [x] Update README.md with testing infrastructure improvements
+- [/] Stage all changes (`git add`)
+- [ ] Commit changes with conventional message
+- [ ] Push to remote repository
+- [ ] Create walkthrough artifact

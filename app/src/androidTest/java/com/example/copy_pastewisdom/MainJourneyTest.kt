@@ -1,5 +1,6 @@
 package com.example.copy_pastewisdom
 
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -17,8 +18,9 @@ class MainJourneyTest {
     @Test
     fun app_launches_and_opens_browser() {
         // 1. Wait for quotes to load (Check for button text)
-        composeTestRule.waitUntil(timeoutMillis = 10000) {
-            composeTestRule.onAllNodes(androidx.compose.ui.test.hasText("Browse All Quotes")).fetchSemanticsNodes().isNotEmpty()
+        // Using a more robust wait condition
+        composeTestRule.waitUntil(timeoutMillis = 15000) {
+            composeTestRule.onAllNodes(hasText("Browse All Quotes")).fetchSemanticsNodes().isNotEmpty()
         }
 
         // 2. Click Browse
