@@ -10,6 +10,9 @@ import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import com.example.copy_pastewisdom.data.QuoteItem
+import com.example.copy_pastewisdom.data.QuoteRepository
+import com.example.copy_pastewisdom.logic.NotificationScheduler
 import coil.ImageLoader
 import coil.request.ImageRequest
 import kotlinx.coroutines.CoroutineScope
