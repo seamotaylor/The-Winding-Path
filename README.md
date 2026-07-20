@@ -5,13 +5,15 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
 ## 🚀 Key Features
 
 ### 🏮 Content & Curation
-- **Massive Discovery Engine**: Features an integrated **Extended Archive** of over 30,000 quotes. The engine uses a smart multi-stage search that prioritizes your curated collection while offering instant local search across history's greatest thinkers.
+- **Global Discovery Toggle**: Seamlessly switch between your curated collection and the massive 30,000+ quote global library with a dedicated toggle in the top bar.
 - **Dynamic Google Sheets Sync**: Real-time synchronization with a published CSV backend, featuring manual refresh and intelligent cache-busting.
 - **Smart Deduplication**: Advanced accent normalization automatically merges authors with different diacritics (e.g., "Niccolo" and "Niccolò"), prioritizing your curated names and portraits.
 - **Handpicked Order**: The app intelligently handles multiple rows for the same author, ensuring that your **first** curated image in the sheet becomes the default portrait.
 - **Offline-First Architecture**: Caches the entire 30k archive and curated list for a 100% functional experience without an internet connection.
 
 ### 🎡 Navigation & Experience
+- **Author Identity Drawer**: An enhanced Modal Bottom Sheet that provides deep dives into author biographies, now featuring smart paragraph formatting and a multi-image gallery.
+- **Animated Zoom Gallery**: Tap any author portrait to enter an immersive, animated full-screen view with pinch-to-zoom and pan support.
 - **Swipeable Browser**: A high-performance navigation system allowing you to swipe between **Authors** and **Topics** effortlessly.
 - **Fast-Scroll Browser**: A dedicated scroll bar with a dynamic **Letter Bubble** that moves with your thumb, allowing you to zip through thousands of authors in seconds.
 - **Endless Quote Pager**: An infinitely looping shuffled deck of wisdom with haptic feedback and smooth scale/alpha transformations.
@@ -34,7 +36,8 @@ The app follows a modern, decoupled **Clean Architecture** to ensure stability a
 
 Stability is guarded by a dual-layer automated testing strategy using the latest **AndroidX Test** and **Espresso** stacks:
 - **Unit Tests**: 7+ tests verifying the "fragile" core logic, including CSV parsing robustness (handling commas inside quotes) and name normalization.
-- **UI Tests (AndroidTest)**: Automated journey testing that verifies the "Golden Path"—launching, loading, and browser navigation. Optimized with increased timeouts and robust semantic matching for reliable CI/CD execution.
+- **Identity Integrity Tests**: Specialized UI tests that verify the correct rendering of biographies and metadata for key figures (e.g., Confucius, Lao Tzu).
+- **End-to-End UI Tests**: Automated journey testing that verifies the "Golden Path"—launching, loading, and browser navigation. Optimized with increased timeouts and robust semantic matching for reliable CI/CD execution.
 
 ## 🛠️ Technical Stack
 

@@ -20,8 +20,9 @@ import java.net.URL
 data class MainUiState(
     val quoteState: QuoteState = QuoteState.Loading,
     val isDiscoverMode: Boolean = false,
-    val archiveQuotes: List<QuoteItem> = emptyList(),
-    val isLoadingArchive: Boolean = false,
+    val globalQuotes: List<QuoteItem> = emptyList(),
+    val globalAuthors: List<Pair<String, Int>> = emptyList(),
+    val isLoadingGlobal: Boolean = false,
     val isBrowsing: Boolean = false,
     val browseSelectedItem: QuoteItem? = null,
     val notificationsEnabled: Boolean = false,
@@ -45,6 +46,7 @@ class MainViewModel : ViewModel() {
 
     fun fetchQuotes(context: Context) {
         viewModelScope.launch {
+            QuoteRepository.clearMetadata()
             _uiState.update { it.copy(quoteState = QuoteState.Loading) }
             val newState = try {
                 val ts = System.currentTimeMillis()
@@ -54,14 +56,16 @@ class MainViewModel : ViewModel() {
                     val mainDef = async { URL("${baseUrl}0&t=$ts").readText() }
                     val dwylDef = async { URL("${baseUrl}964551737&t=$ts").readText() }
                     val rM = mainDef.await(); val rD = dwylDef.await()
-                    val qD = QuoteRepository.parseCsv(rD)
-                    val qM = QuoteRepository.parseCsv(rM)
+                    
+                    val qM = QuoteRepository.parseCsv(rM, priority = 3)
+                    val qD = QuoteRepository.parseCsv(rD, priority = 2)
+                    
                     QuoteRepository.saveQuotesToCache(context, "$rM\n---TAB_BREAK---\n$rD")
-                    QuoteRepository.indexMetadata(qD)
-                    QuoteRepository.indexMetadata(qM)
+                    // Priority Order: Main tab first ensures primary choices are seen first by the metadata engine
+                    QuoteRepository.indexMetadata(qM + qD)
                     (qM + qD).distinctBy { listOf(it.author.lowercase().trim(), it.quote.trim().lowercase(), it.imageUrl) }
                 }
-                if (combined.isNotEmpty()) QuoteState.Success(combined) else QuoteState.Error("Empty Library")
+                if (combined.isNotEmpty()) QuoteState.Success(combined) else throw Exception("Empty")
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Fetch error: ${e.message}")
                 val cached = withContext(Dispatchers.IO) { QuoteRepository.getQuotesFromCache(context) }
@@ -74,21 +78,21 @@ class MainViewModel : ViewModel() {
     fun toggleDiscoverMode() {
         viewModelScope.launch {
             val currentState = _uiState.value
-            if (!currentState.isDiscoverMode && currentState.archiveQuotes.isEmpty()) {
-                _uiState.update { it.copy(isLoadingArchive = true) }
-                val archive = try {
-                    QuoteRepository.getAllArchiveQuotes()
+            if (!currentState.isDiscoverMode && currentState.globalQuotes.isEmpty()) {
+                _uiState.update { it.copy(isLoadingGlobal = true) }
+                val (archive, authors) = try {
+                    val quotes = QuoteRepository.getAllGlobalQuotes()
+                    val grouped = QuoteRepository.getAllGlobalAuthors() // Pre-group for the browser
+                    Pair(quotes, grouped)
                 } catch (e: Exception) {
-                    emptyList()
+                    Pair(emptyList(), emptyList())
                 }
                 _uiState.update { it.copy(
-                    isLoadingArchive = false,
-                    archiveQuotes = archive,
+                    isLoadingGlobal = false,
+                    globalQuotes = archive,
+                    globalAuthors = authors,
                     isDiscoverMode = archive.isNotEmpty()
                 ) }
-                if (archive.isEmpty()) {
-                    Log.e("MainViewModel", "Could not load archive quotes")
-                }
             } else {
                 _uiState.update { it.copy(isDiscoverMode = !it.isDiscoverMode) }
             }

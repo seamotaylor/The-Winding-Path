@@ -7,7 +7,9 @@ import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import com.example.copy_pastewisdom.ui.theme.SecondaryText
 
@@ -15,9 +17,36 @@ import com.example.copy_pastewisdom.ui.theme.SecondaryText
 @Composable
 fun WisdomTopBar(isDiscoverMode: Boolean, onDiscoverToggle: () -> Unit, onRefresh: () -> Unit, onSettings: () -> Unit) {
     CenterAlignedTopAppBar(
-        title = { Text(if (isDiscoverMode) "Global Discovery" else "Copy-Paste Wisdom", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Light, color = SecondaryText)) },
-        navigationIcon = { IconButton(onClick = onDiscoverToggle) { Icon(if (isDiscoverMode) Icons.Filled.TravelExplore else Icons.Outlined.TravelExplore, null, tint = if (isDiscoverMode) MaterialTheme.colorScheme.primary else SecondaryText) } },
-        actions = { IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, null, tint = SecondaryText) }; IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, null, tint = SecondaryText) } },
+        title = { 
+            Text(
+                text = if (isDiscoverMode) "Global Discovery" else "Copy-Paste Wisdom", 
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Light, color = SecondaryText)
+            ) 
+        },
+        navigationIcon = { 
+            IconButton(
+                onClick = onDiscoverToggle,
+                modifier = Modifier.testTag("discovery_toggle"),
+                colors = if (isDiscoverMode) {
+                    IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                        contentColor = MaterialTheme.colorScheme.primary
+                    )
+                } else {
+                    IconButtonDefaults.iconButtonColors()
+                }
+            ) { 
+                Icon(
+                    imageVector = if (isDiscoverMode) Icons.Filled.TravelExplore else Icons.Outlined.TravelExplore, 
+                    contentDescription = null, 
+                    tint = if (isDiscoverMode) Color.White else SecondaryText
+                ) 
+            } 
+        },
+        actions = { 
+            IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, null, tint = SecondaryText) }
+            IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, null, tint = SecondaryText) } 
+        },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
     )
 }

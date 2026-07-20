@@ -31,6 +31,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,7 +77,7 @@ fun AuthorAboutContent(author: String, about: String, imageUrls: List<String>, o
         Spacer(Modifier.height(16.dp)); Box(modifier = Modifier.onGloballyPositioned { rect = Rect(it.positionInWindow(), it.size.toSize()) }.clickable(imageUrls.isNotEmpty()) { showFull = true }, contentAlignment = Alignment.BottomEnd) {
             AuthorAvatar(author, imageUrls.firstOrNull(), 120.dp); if (imageUrls.isNotEmpty()) Surface(color = MaterialTheme.colorScheme.primary, shape = CircleShape, modifier = Modifier.size(32.dp).offset((-4).dp, (-4).dp), tonalElevation = 4.dp) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.ZoomIn, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimary) } }
         }
-        Spacer(Modifier.height(24.dp)); val paras = remember(about) { if (about.isBlank()) listOf("Mystery thinker.") else about.split(Regex("(?<=[.!?])\\\\s+(?=[A-Z])")) }
-        LazyColumn(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) { items(paras) { Text(it, style = MaterialTheme.typography.bodyLarge, lineHeight = 26.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        Spacer(Modifier.height(24.dp)); val paras = remember(about) { if (about.isBlank()) listOf("Mystery thinker.") else about.split(Regex("(?<=[.!?])\\s+(?=[A-Z])")) }
+        LazyColumn(Modifier.fillMaxWidth().testTag("author_bio_list"), verticalArrangement = Arrangement.spacedBy(12.dp)) { items(paras) { Text(it, style = MaterialTheme.typography.bodyLarge, lineHeight = 26.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
     }
 }

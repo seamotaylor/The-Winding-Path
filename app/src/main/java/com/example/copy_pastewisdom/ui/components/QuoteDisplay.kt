@@ -10,6 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.copy_pastewisdom.data.QuoteItem
@@ -23,6 +24,7 @@ import kotlin.random.Random
 @Composable
 fun QuoteDisplay(
     quotes: List<QuoteItem>, 
+    isDiscoverMode: Boolean,
     curatedDailyQuote: QuoteItem?, 
     externalSelectedQuote: QuoteItem?, 
     onBrowseClick: () -> Unit
@@ -31,19 +33,40 @@ fun QuoteDisplay(
     val daily = curatedDailyQuote ?: if (displayable.isNotEmpty()) displayable[Calendar.getInstance()[Calendar.DAY_OF_YEAR] % displayable.size] else null
     var seed by remember { mutableIntStateOf(0) }
     val shuffled = remember(displayable, seed) { if (displayable.isEmpty()) emptyList() else displayable.shuffled(Random(seed)) }
-    val dailyIdx = remember(shuffled, daily) { if (daily == null) 0 else shuffled.indexOf(daily).coerceAtLeast(0) }
+    
+    // Find the daily index by content rather than instance to handle the combined global list
+    val dailyIdx = remember(shuffled, daily) { 
+        if (daily == null) -1 
+        else shuffled.indexOfFirst { it.quote.trim().equals(daily.quote.trim(), ignoreCase = true) }
+    }
     val infiniteCount = 1000000
-    val initPage = (infiniteCount / 2) - ((infiniteCount / 2) % shuffled.size) + dailyIdx
+    val initPage = remember(shuffled, dailyIdx) { 
+        if (shuffled.isEmpty()) 0 
+        else (infiniteCount / 2) - ((infiniteCount / 2) % shuffled.size) + (if (dailyIdx >= 0) dailyIdx else 0)
+    }
     val pagerState = rememberPagerState(initPage) { if (shuffled.isEmpty()) 0 else infiniteCount }
+
+    // Force jump to the daily quote on first load once data is ready
+    LaunchedEffect(shuffled) {
+        if (shuffled.isNotEmpty() && pagerState.currentPage == 0) {
+            pagerState.scrollToPage(initPage)
+        }
+    }
+
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     LaunchedEffect(pagerState.currentPage) { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
-    val currentItem = shuffled.getOrNull(pagerState.currentPage % shuffled.size)
+    val currentItem = if (shuffled.isEmpty()) null else shuffled.getOrNull(pagerState.currentPage % shuffled.size)
     val aboutSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showAbout by remember { mutableStateOf(false) }
 
     LaunchedEffect(externalSelectedQuote) {
-        externalSelectedQuote?.let { s -> val idx = shuffled.indexOf(s); if (idx >= 0) pagerState.scrollToPage(pagerState.currentPage - (pagerState.currentPage % shuffled.size) + idx) }
+        externalSelectedQuote?.let { s -> 
+            val idx = shuffled.indexOf(s)
+            if (idx >= 0 && shuffled.isNotEmpty()) {
+                pagerState.scrollToPage(pagerState.currentPage - (pagerState.currentPage % shuffled.size) + idx)
+            }
+        }
     }
     
     if (showAbout && currentItem != null) ModalBottomSheet(onDismissRequest = { showAbout = false }, sheetState = aboutSheetState) {
@@ -61,18 +84,40 @@ fun QuoteDisplay(
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        HorizontalPager(pagerState, modifier = Modifier.weight(1f).fillMaxHeight(), contentPadding = PaddingValues(vertical = 32.dp), verticalAlignment = Alignment.CenterVertically) { p ->
-            val item = shuffled[p % shuffled.size]
-            QuoteCard(item, QuoteRepository.findAuthorImage(item.author, quotes), (p % shuffled.size) == dailyIdx, pagerState, p) { showAbout = true }
+        HorizontalPager(
+            state = pagerState, 
+            modifier = Modifier.weight(1f).fillMaxHeight().testTag("quote_pager"), 
+            contentPadding = PaddingValues(vertical = 32.dp), 
+            verticalAlignment = Alignment.CenterVertically
+        ) { p ->
+            if (shuffled.isNotEmpty()) {
+                val item = shuffled[p % shuffled.size]
+                // Content-based check to handle duplicates between curated and global lists
+                val isStrictlyDaily = daily != null && item.quote.trim().equals(daily.quote.trim(), ignoreCase = true)
+                QuoteCard(
+                    item = item, 
+                    imgUrl = QuoteRepository.findAuthorImage(item.author, quotes), 
+                    isDaily = isStrictlyDaily, 
+                    isDiscoverMode = isDiscoverMode,
+                    pager = pagerState, 
+                    page = p
+                ) { showAbout = true }
+            }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(bottom = 48.dp)) {
-            if ((pagerState.currentPage % shuffled.size) != dailyIdx) {
+            if (shuffled.isNotEmpty() && (pagerState.currentPage % shuffled.size) != dailyIdx && dailyIdx >= 0) {
                 TextButton(onClick = { 
                     val nextSeed = seed + 1
                     val newList = displayable.shuffled(Random(nextSeed))
-                    val newIdx = if (daily != null) newList.indexOf(daily).coerceAtLeast(0) else 0
+                    val newIdx = if (daily != null) {
+                        newList.indexOfFirst { it.quote.trim().equals(daily.quote.trim(), ignoreCase = true) }.coerceAtLeast(0)
+                    } else 0
                     seed = nextSeed
-                    scope.launch { pagerState.animateScrollToPage((infiniteCount / 2) - ((infiniteCount / 2) % newList.size) + newIdx) } 
+                    scope.launch { 
+                        if (newList.isNotEmpty()) {
+                            pagerState.animateScrollToPage((infiniteCount / 2) - ((infiniteCount / 2) % newList.size) + newIdx) 
+                        }
+                    } 
                 }, modifier = Modifier.padding(bottom = 16.dp)) { Text("Return to Today's Wisdom", style = MaterialTheme.typography.labelLarge.copy(color = SecondaryText)) }
             } else Spacer(Modifier.height(64.dp))
             Button(onBrowseClick, shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 48.dp, vertical = 16.dp)) { Text("Browse All Quotes", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)) }

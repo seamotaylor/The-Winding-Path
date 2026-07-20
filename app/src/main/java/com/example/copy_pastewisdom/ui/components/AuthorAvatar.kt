@@ -23,11 +23,18 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.copy_pastewisdom.data.QuoteRepository
-import kotlin.math.absoluteValue
 
 @Composable
 fun AuthorAvatar(author: String, imageUrl: String? = null, size: Dp) {
-    val bg = remember(author) { listOf(Color(0xFFEF5350), Color(0xFFEC407A), Color(0xFFAB47BC), Color(0xFF7E57C2), Color(0xFF5C6BC0), Color(0xFF42A5F5), Color(0xFF26A69A), Color(0xFF66BB6A), Color(0xFFFFA726))[author.hashCode().absoluteValue % 9] }
+    val bg = remember(author) { 
+        val colors = listOf(
+            Color(0xFFEF5350), Color(0xFFEC407A), Color(0xFFAB47BC), 
+            Color(0xFF7E57C2), Color(0xFF5C6BC0), Color(0xFF42A5F5), 
+            Color(0xFF26A69A), Color(0xFF66BB6A), Color(0xFFFFA726)
+        )
+        val index = (author.hashCode() and Int.MAX_VALUE) % colors.size
+        colors[index]
+    }
     var err by remember(imageUrl) { mutableStateOf(false) }
     Surface(modifier = Modifier.size(size), shape = CircleShape, color = bg, tonalElevation = 2.dp) {
         Box(contentAlignment = Alignment.Center) {

@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -36,16 +37,23 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrowseQuotesView(quotes: List<QuoteItem>, onQuoteSelected: (QuoteItem) -> Unit, onBack: () -> Unit) {
+fun BrowseQuotesView(
+    quotes: List<QuoteItem>, 
+    isDiscoverMode: Boolean,
+    globalAuthors: List<Pair<String, Int>>,
+    onDiscoverToggle: () -> Unit,
+    onQuoteSelected: (QuoteItem) -> Unit, 
+    onBack: () -> Unit
+) {
     val curatedCounts = remember(quotes) { quotes.asSequence().filter { it.quote.isNotBlank() }.groupingBy { it.author.trim() }.eachCount() }
-    var showArch by remember { mutableStateOf(false) }; var archAuth by remember { mutableStateOf<List<Pair<String, Int>>>(emptyList()) }; var loadingArch by remember { mutableStateOf(false) }
     
-    val countsMap by produceState(initialValue = curatedCounts, curatedCounts, archAuth, showArch) {
+    // Fast production calculation using pre-grouped global authors
+    val countsMap by produceState(initialValue = curatedCounts, curatedCounts, globalAuthors, isDiscoverMode) {
         value = withContext(Dispatchers.Default) {
             val m = curatedCounts.toMutableMap()
-            if (showArch) {
+            if (isDiscoverMode) {
                 val curatedKeyLookup = m.keys.associateBy { QuoteRepository.normalizeAccents(it) }
-                archAuth.forEach { (n, c) -> 
+                globalAuthors.forEach { (n, c) -> 
                     val normN = QuoteRepository.normalizeAccents(n)
                     val existingKey = curatedKeyLookup[normN]
                     if (existingKey != null) { m[existingKey] = (m[existingKey] ?: 0) + c } else { m[n.trim()] = c }
@@ -62,34 +70,35 @@ fun BrowseQuotesView(quotes: List<QuoteItem>, onQuoteSelected: (QuoteItem) -> Un
     val browserPagerState = rememberPagerState { 2 }
     val authState = rememberLazyListState(); val topState = rememberLazyListState()
     
-    var archTags by remember { mutableStateOf<List<Pair<String, Int>>>(emptyList()) }
+    var globalTags by remember { mutableStateOf<List<Pair<String, Int>>>(emptyList()) }
     var selTop by remember { mutableStateOf<String?>(null) }
     var topQuotes by remember { mutableStateOf<List<QuoteItem>>(emptyList()) }
     
     var loadingTags by remember { mutableStateOf(false) }
     var loadingTopQ by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope(); val context = LocalContext.current
+    @Suppress("DEPRECATION")
     val clipboard = LocalClipboardManager.current
     
+    // Background list filtering
     val fAuth by produceState(initialValue = emptyList<String>(), fullList, query) {
         value = withContext(Dispatchers.Default) { if (query.isBlank()) fullList else fullList.filter { it.contains(query, true) } }
     }
-    val fTags by produceState(initialValue = emptyList<Pair<String, Int>>(), archTags, query) {
-        value = withContext(Dispatchers.Default) { if (query.isBlank()) archTags else archTags.filter { it.first.contains(query, true) } }
+    val fTags by produceState(initialValue = emptyList<Pair<String, Int>>(), globalTags, query) {
+        value = withContext(Dispatchers.Default) { if (query.isBlank()) globalTags else globalTags.filter { it.first.contains(query, true) } }
     }
     
-    var authorArchiveQuotes by remember { mutableStateOf<List<QuoteItem>>(emptyList()) }
-    var loadingAuthArch by remember { mutableStateOf(false) }
+    var authorGlobalQuotes by remember { mutableStateOf<List<QuoteItem>>(emptyList()) }
+    var loadingAuthorGlobalQuotes by remember { mutableStateOf(false) }
     var luckyQuote by remember { mutableStateOf<QuoteItem?>(null) }
     var isFetchingLucky by remember { mutableStateOf(false) }
     
     val aboutSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showAbout by remember { mutableStateOf(false) }
 
-    LaunchedEffect(showArch) { if (showArch && archAuth.isEmpty()) { loadingArch = true; archAuth = QuoteRepository.getAllArchiveAuthors(); loadingArch = false } }
-    LaunchedEffect(browserPagerState.currentPage) { if (browserPagerState.currentPage == 1 && archTags.isEmpty()) { loadingTags = true; archTags = QuoteRepository.getAllArchiveTags(); loadingTags = false } }
-    LaunchedEffect(selTop) { if (selTop != null) { loadingTopQ = true; topQuotes = QuoteRepository.getArchiveQuotesByTag(selTop!!); loadingTopQ = false } }
-    LaunchedEffect(selAuth) { if (selAuth != null) { loadingAuthArch = true; authorArchiveQuotes = QuoteRepository.getArchiveQuotesForAuthor(selAuth!!); loadingAuthArch = false } }
+    LaunchedEffect(browserPagerState.currentPage) { if (browserPagerState.currentPage == 1 && globalTags.isEmpty()) { loadingTags = true; globalTags = QuoteRepository.getAllGlobalTags(); loadingTags = false } }
+    LaunchedEffect(selTop) { if (selTop != null) { loadingTopQ = true; topQuotes = QuoteRepository.getGlobalQuotesByTag(selTop!!); loadingTopQ = false } }
+    LaunchedEffect(selAuth) { if (selAuth != null) { loadingAuthorGlobalQuotes = true; authorGlobalQuotes = QuoteRepository.getGlobalQuotesForAuthor(selAuth!!); loadingAuthorGlobalQuotes = false } }
     
     BackHandler {
         if (selAuth != null) selAuth = null
@@ -146,18 +155,29 @@ fun BrowseQuotesView(quotes: List<QuoteItem>, onQuoteSelected: (QuoteItem) -> Un
                             Column(Modifier.fillMaxSize()) {
                                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                     Text("Discover New Wisdom", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                                    Button(onClick = { scope.launch { isFetchingLucky = true; val res = QuoteRepository.fetchZenQuote(); if (res != null) { if (res.quote == "RATE_LIMIT") Toast.makeText(context, "API Cooldown", Toast.LENGTH_SHORT).show() else luckyQuote = res } else { val fall = QuoteRepository.findRandomArchiveQuote(); if (fall != null) { luckyQuote = fall; Toast.makeText(context, "Using archived discovery", Toast.LENGTH_SHORT).show() } }; isFetchingLucky = false } }, enabled = !isFetchingLucky, shape = RoundedCornerShape(8.dp)) { if (isFetchingLucky) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp) else Text("I'm Feeling Lucky") }
+                                    Button(onClick = { scope.launch { isFetchingLucky = true; val res = QuoteRepository.fetchZenQuote(); if (res != null) { if (res.quote == "RATE_LIMIT") Toast.makeText(context, "API Cooldown", Toast.LENGTH_SHORT).show() else luckyQuote = res } else { val fall = QuoteRepository.findRandomGlobalQuote(); if (fall != null) { luckyQuote = fall; Toast.makeText(context, "Using global discovery", Toast.LENGTH_SHORT).show() } }; isFetchingLucky = false } }, enabled = !isFetchingLucky, shape = RoundedCornerShape(8.dp)) { if (isFetchingLucky) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp) else Text("I'm Feeling Lucky") }
                                 }
                                 luckyQuote?.let { item -> Surface(onClick = { clipboard.setText(AnnotatedString("“${item.quote}” — ${item.author}")); Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) { Column(Modifier.padding(16.dp)) { Text("“${item.quote}”", style = MaterialTheme.typography.bodyLarge.copy(fontStyle = FontStyle.Italic)); Spacer(Modifier.height(8.dp)); Row(verticalAlignment = Alignment.CenterVertically) { AuthorAvatar(item.author, null, 24.dp); Spacer(Modifier.width(8.dp)); Text("— ${item.author}", style = MaterialTheme.typography.labelLarge) } } } }
-                                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) { Text("Extended Archive", style = MaterialTheme.typography.titleSmall); if (loadingArch) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Switch(showArch, { showArch = it }) }
+                                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) { 
+                                    Text("Global Discovery", style = MaterialTheme.typography.titleSmall)
+                                    Switch(
+                                        checked = isDiscoverMode, 
+                                        onCheckedChange = { onDiscoverToggle() },
+                                        modifier = Modifier.testTag("browser_discovery_switch")
+                                    ) 
+                                }
                                 HorizontalDivider(Modifier.padding(vertical = 8.dp)); Box(Modifier.fillMaxSize()) {
-                                    LazyColumn(state = authState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(end = if (showArch && query.isBlank()) 32.dp else 0.dp)) { 
+                                    LazyColumn(
+                                        state = authState, 
+                                        modifier = Modifier.fillMaxSize().testTag("authors_list"), 
+                                        contentPadding = PaddingValues(end = if (isDiscoverMode && query.isBlank()) 32.dp else 0.dp)
+                                    ) { 
                                         items(fAuth) { a -> 
                                             DiscoveryListItem(a, countsMap[a]?.let { "$it quotes" }, QuoteRepository.findAuthorImage(a, quotes)) { selAuth = a }
                                             HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp)) 
                                         } 
                                     }
-                                    if (showArch && query.isBlank() && fAuth.isNotEmpty()) { Box(Modifier.align(Alignment.CenterEnd)) { FastScrollBar(authState, fAuth.size) { fAuth.getOrNull(it)?.firstOrNull()?.uppercase() ?: "" } } }
+                                    if (isDiscoverMode && query.isBlank() && fAuth.isNotEmpty()) { Box(Modifier.align(Alignment.CenterEnd)) { FastScrollBar(authState, fAuth.size) { fAuth.getOrNull(it)?.firstOrNull()?.uppercase() ?: "" } } }
                                 }
                             }
                         } else Box(Modifier.fillMaxSize()) {
@@ -173,14 +193,7 @@ fun BrowseQuotesView(quotes: List<QuoteItem>, onQuoteSelected: (QuoteItem) -> Un
             } else if (selTop != null) {
                 Column(Modifier.fillMaxSize()) {
                     if (loadingTopQ) Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                    else LazyColumn(Modifier.fillMaxSize()) { 
-                        items(topQuotes) { item -> 
-                            QuoteTrayItem(item = item) {
-                                clipboard.setText(AnnotatedString("“${item.quote}” — ${item.author}"))
-                                Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show() 
-                            }
-                        } 
-                    }
+                    else LazyColumn(Modifier.fillMaxSize()) { items(topQuotes) { item -> QuoteTrayItem(item = item) { clipboard.setText(AnnotatedString("“${item.quote}” — ${item.author}")); Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show() } } }
                 }
             } else {
                 val currentAuthor = selAuth
@@ -197,7 +210,7 @@ fun BrowseQuotesView(quotes: List<QuoteItem>, onQuoteSelected: (QuoteItem) -> Un
                             }
                         }
                         val cur = quotes.filter { QuoteRepository.normalizeAccents(it.author) == QuoteRepository.normalizeAccents(currentAuthor) }
-                        val arq = authorArchiveQuotes.filter { aq -> cur.none { it.quote.trim().equals(aq.quote.trim(), true) } }
+                        val arq = authorGlobalQuotes.filter { aq -> cur.none { it.quote.trim().equals(aq.quote.trim(), true) } }
                         
                         if (cur.isNotEmpty()) { 
                             item { Text("CURATED", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
@@ -205,13 +218,12 @@ fun BrowseQuotesView(quotes: List<QuoteItem>, onQuoteSelected: (QuoteItem) -> Un
                                 QuoteTrayItem(item = item, showAvatar = false) { onQuoteSelected(item) }
                             } 
                         }
-                        if (loadingAuthArch) { item { Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) } } }
+                        if (loadingAuthorGlobalQuotes) { item { Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) { CircularProgressIndicator(Modifier.size(24.dp)) } } }
                         else if (arq.isNotEmpty()) { 
-                            item { Text("ARCHIVE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp)) }
+                            item { Text("GLOBAL DISCOVERY", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp)) }
                             items(arq) { item -> 
                                 QuoteTrayItem(item = item, showAvatar = false) { 
-                                    clipboard.setText(AnnotatedString("“${item.quote}” — ${item.author}"))
-                                    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show() 
+                                    clipboard.setText(AnnotatedString("“${item.quote}” — ${item.author}")); Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show() 
                                 } 
                             } 
                         }

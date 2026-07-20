@@ -124,7 +124,7 @@ fun MainScreen(
             contentAlignment = Alignment.Center
         ) {
             AnimatedContent(
-                targetState = if (uiState.isLoadingArchive) QuoteState.Loading else uiState.quoteState,
+                targetState = if (uiState.isLoadingGlobal) QuoteState.Loading else uiState.quoteState,
                 transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(300)) },
                 label = "MainContentAnimation"
             ) { state ->
@@ -134,12 +134,16 @@ fun MainScreen(
                         if (uiState.isBrowsing) {
                             BrowseQuotesView(
                                 quotes = state.quotes,
+                                isDiscoverMode = uiState.isDiscoverMode,
+                                globalAuthors = uiState.globalAuthors,
+                                onDiscoverToggle = { viewModel.toggleDiscoverMode() },
                                 onQuoteSelected = { viewModel.selectBrowseItem(it) },
                                 onBack = { viewModel.setBrowsing(false) }
                             )
                         } else {
                             QuoteDisplay(
-                                quotes = if (uiState.isDiscoverMode) (state.quotes + uiState.archiveQuotes).distinctBy { it.quote.trim().lowercase() } else state.quotes,
+                                quotes = if (uiState.isDiscoverMode) (state.quotes + uiState.globalQuotes).distinctBy { it.quote.trim().lowercase() } else state.quotes,
+                                isDiscoverMode = uiState.isDiscoverMode,
                                 curatedDailyQuote = remember(state.quotes) { 
                                     val q = state.quotes.filter { it.quote.isNotBlank() }
                                     if (q.isEmpty()) null else q[Calendar.getInstance()[Calendar.DAY_OF_YEAR] % q.size] 

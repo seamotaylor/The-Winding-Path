@@ -20,12 +20,25 @@ object QuoteRepository {
 
     private val authorMetadata = mutableMapOf<String, AuthorMetadata>()
 
-    data class AuthorMetadata(val imageUrl: String? = null, val about: String? = null)
+    data class AuthorMetadata(
+        val imageUrl: String? = null, 
+        val about: String? = null,
+        val imagePriority: Int = 0,
+        val aboutPriority: Int = 0,
+        val isCurated: Boolean = false
+    )
 
     fun getQuotesFromCache(context: Context): List<QuoteItem> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val data = prefs.getString(KEY_CSV, null) ?: return emptyList()
-        val list = if (data.contains("---TAB_BREAK---")) data.split("---TAB_BREAK---").flatMap { parseCsv(it) } else parseCsv(data)
+        val list = if (data.contains("---TAB_BREAK---")) {
+            val tabs = data.split("---TAB_BREAK---")
+            val qM = if (tabs.isNotEmpty()) parseCsv(tabs[0], priority = 3) else emptyList()
+            val qD = if (tabs.size > 1) parseCsv(tabs[1], priority = 2) else emptyList()
+            qM + qD
+        } else {
+            parseCsv(data, priority = 3)
+        }
         indexMetadata(list)
         return list
     }
@@ -34,23 +47,69 @@ object QuoteRepository {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putString(KEY_CSV, rawData) }
     }
 
+    fun clearMetadata() {
+        authorMetadata.clear()
+    }
+
     fun indexMetadata(quotes: List<QuoteItem>) {
-        val archiveItems = quotes.filter { it.about.contains("ARCHIVE", true) }
-        val curatedItems = quotes.filter { !it.about.contains("ARCHIVE", true) }.reversed()
-        
-        (archiveItems + curatedItems).forEach { item ->
-            val norm = normalizeAccents(item.author)
-            val ex = authorMetadata[norm]
-            if (!item.imageUrl.isNullOrBlank() || item.about.isNotBlank()) {
+        val grouped = quotes.groupBy { normalizeAccents(it.author) }
+        grouped.forEach { (norm, authorQuotes) ->
+            val existing = authorMetadata[norm]
+            
+            // Find highest priority items in THIS incoming list
+            // We use maxByOrNull because in a single list (like Main Tab), 
+            // all items have priority 3. So firstOrNull in sheet order is handled naturally 
+            // if we process the list in original order.
+            
+            // 1. Image logic
+            val bestImageItem = authorQuotes.firstOrNull { !it.imageUrl.isNullOrBlank() }
+            val incomingImgPriority = bestImageItem?.priority ?: 0
+            val existingImgPriority = existing?.imagePriority ?: 0
+            
+            val finalImage = if (bestImageItem != null && incomingImgPriority >= existingImgPriority) {
+                // EXCEPTION: If both are Tier 3 (Main Tab) or both Tier 2 (Archive), 
+                // we ONLY update if existing is null to enforce "First in Sheet order wins".
+                if (incomingImgPriority == existingImgPriority && existing?.imageUrl != null) {
+                    existing.imageUrl
+                } else {
+                    bestImageItem.imageUrl
+                }
+            } else {
+                existing?.imageUrl
+            }
+            
+            val finalImgPriority = if (finalImage == bestImageItem?.imageUrl) incomingImgPriority else existingImgPriority
+
+            // 2. Biography logic
+            val bestAboutItem = authorQuotes.firstOrNull { it.about.isNotBlank() && !it.about.contains("GLOBAL", true) }
+            val incomingAboutPriority = bestAboutItem?.priority ?: 0
+            val existingAboutPriority = existing?.aboutPriority ?: 0
+
+            val finalAbout = if (bestAboutItem != null && incomingAboutPriority >= existingAboutPriority) {
+                if (incomingAboutPriority == existingAboutPriority && existing?.about != null) {
+                    existing.about
+                } else {
+                    bestAboutItem.about
+                }
+            } else {
+                existing?.about
+            }
+            
+            val finalAboutPriority = if (finalAbout == bestAboutItem?.about) incomingAboutPriority else existingAboutPriority
+
+            if (finalImage != null || finalAbout != null) {
                 authorMetadata[norm] = AuthorMetadata(
-                    imageUrl = if (!item.imageUrl.isNullOrBlank()) item.imageUrl else ex?.imageUrl,
-                    about = if (item.about.isNotBlank() && !item.about.contains("ARCHIVE", true)) item.about else ex?.about
+                    imageUrl = finalImage,
+                    about = finalAbout,
+                    imagePriority = finalImgPriority,
+                    aboutPriority = finalAboutPriority,
+                    isCurated = finalImgPriority > 1 || finalAboutPriority > 1
                 )
             }
         }
     }
 
-    fun parseCsv(rawData: String): List<QuoteItem> {
+    fun parseCsv(rawData: String, priority: Int = 0): List<QuoteItem> {
         return rawData.lineSequence().drop(1).filter { it.contains(",") }.map { line ->
             val parts = line.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)".toRegex())
             val rawUrl = parts.getOrNull(3)?.trim()?.removeSurrounding("\"")
@@ -58,7 +117,8 @@ object QuoteRepository {
                 author = parts.getOrNull(0)?.trim()?.removeSurrounding("\"") ?: "Unknown",
                 about = parts.getOrNull(1)?.trim()?.removeSurrounding("\"") ?: "",
                 quote = parts.getOrNull(2)?.trim()?.removeSurrounding("\"") ?: "",
-                imageUrl = formatImageUrl(rawUrl)
+                imageUrl = formatImageUrl(rawUrl),
+                priority = priority
             )
         }.filter { it.author.isNotBlank() && (it.quote.isNotBlank() || !it.imageUrl.isNullOrBlank()) }.toList()
     }
@@ -86,8 +146,8 @@ object QuoteRepository {
     fun findAuthorImage(authorName: String, allQuotes: List<QuoteItem>): String? {
         val norm = normalizeAccents(authorName)
         authorMetadata[norm]?.imageUrl?.let { return it }
-        val img = allQuotes.find { normalizeAccents(it.author) == norm && !it.imageUrl.isNullOrBlank() }?.imageUrl
-        if (img != null) authorMetadata[norm] = AuthorMetadata(imageUrl = img, about = authorMetadata[norm]?.about)
+        val img = allQuotes.filter { normalizeAccents(it.author) == norm && !it.imageUrl.isNullOrBlank() }
+            .maxByOrNull { it.priority }?.imageUrl
         return img
     }
 
@@ -100,7 +160,7 @@ object QuoteRepository {
 
     private var globalQuotesCache: List<QuoteItem>? = null
 
-    suspend fun getAllArchiveQuotes(): List<QuoteItem> {
+    suspend fun getAllGlobalQuotes(): List<QuoteItem> {
         if (globalQuotesCache != null) return globalQuotesCache!!
         return fetchGlobalQuotes() ?: emptyList()
     }
@@ -114,33 +174,39 @@ object QuoteRepository {
                 val obj = array.getJSONObject(i)
                 val rawAuthor = obj.optString("author", "Unknown").trim()
                 val tagList = obj.optString("tags", "").split(",").map { it.trim().lowercase() }.filter { it.isNotBlank() }
-                list.add(QuoteItem(author = if (rawAuthor == "type.fit") "Unknown" else rawAuthor, quote = obj.optString("text", ""), about = "EXTENDED ARCHIVE", tags = tagList))
+                list.add(QuoteItem(
+                    author = if (rawAuthor == "type.fit") "Unknown" else rawAuthor, 
+                    quote = obj.optString("text", ""), 
+                    about = "GLOBAL DISCOVERY", 
+                    tags = tagList,
+                    priority = 1
+                ))
             }
             globalQuotesCache = list
             list
         } catch (e: Exception) { Log.e("QuoteRepository", "Error fetching global quotes", e); null }
     }
 
-    suspend fun findRandomArchiveQuote(): QuoteItem? {
-        val all = getAllArchiveQuotes()
-        return if (all.isNotEmpty()) all.random().copy(about = "ARCHIVE DISCOVERY") else null
+    suspend fun findRandomGlobalQuote(): QuoteItem? {
+        val all = getAllGlobalQuotes()
+        return if (all.isNotEmpty()) all.random().copy(about = "GLOBAL DISCOVERY") else null
     }
 
-    suspend fun getAllArchiveAuthors(): List<Pair<String, Int>> = withContext(Dispatchers.IO) {
-        getAllArchiveQuotes().asSequence().map { it.author }.filter { it.isNotBlank() && it != "Unknown" }.groupingBy { it }.eachCount().toList().sortedBy { it.first }
+    suspend fun getAllGlobalAuthors(): List<Pair<String, Int>> = withContext(Dispatchers.IO) {
+        getAllGlobalQuotes().asSequence().map { it.author }.filter { it.isNotBlank() && it != "Unknown" }.groupingBy { it }.eachCount().toList().sortedBy { it.first }
     }
 
-    suspend fun getArchiveQuotesForAuthor(authorName: String): List<QuoteItem> = withContext(Dispatchers.IO) {
+    suspend fun getGlobalQuotesForAuthor(authorName: String): List<QuoteItem> = withContext(Dispatchers.IO) {
         val norm = normalizeAccents(authorName)
-        getAllArchiveQuotes().filter { normalizeAccents(it.author) == norm }
+        getAllGlobalQuotes().filter { normalizeAccents(it.author) == norm }
     }
 
-    suspend fun getAllArchiveTags(): List<Pair<String, Int>> = withContext(Dispatchers.IO) {
-        getAllArchiveQuotes().asSequence().flatMap { it.tags }.groupingBy { it }.eachCount().toList().sortedBy { it.first }
+    suspend fun getAllGlobalTags(): List<Pair<String, Int>> = withContext(Dispatchers.IO) {
+        getAllGlobalQuotes().asSequence().flatMap { it.tags }.groupingBy { it }.eachCount().toList().sortedBy { it.first }
     }
 
-    suspend fun getArchiveQuotesByTag(tag: String): List<QuoteItem> = withContext(Dispatchers.IO) {
-        getAllArchiveQuotes().filter { it.tags.contains(tag.lowercase()) }
+    suspend fun getGlobalQuotesByTag(tag: String): List<QuoteItem> = withContext(Dispatchers.IO) {
+        getAllGlobalQuotes().filter { it.tags.contains(tag.lowercase()) }
     }
 
     suspend fun fetchZenQuote(): QuoteItem? = withContext(Dispatchers.IO) {
@@ -154,7 +220,12 @@ object QuoteRepository {
             val array = JSONArray(text)
             if (array.length() > 0) {
                 val obj = array.getJSONObject(0)
-                return@withContext QuoteItem(author = obj.optString("a", "Unknown"), quote = obj.optString("q", ""), about = "GLOBAL DISCOVERY")
+                return@withContext QuoteItem(
+                    author = obj.optString("a", "Unknown"), 
+                    quote = obj.optString("q", ""), 
+                    about = "GLOBAL DISCOVERY",
+                    priority = 1
+                )
             }
         } catch (e: Exception) { Log.e("QuoteRepository", "ZenQuote failed", e) }
         null

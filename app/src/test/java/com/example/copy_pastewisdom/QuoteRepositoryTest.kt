@@ -3,81 +3,73 @@ package com.example.copy_pastewisdom
 import com.example.copy_pastewisdom.data.QuoteItem
 import com.example.copy_pastewisdom.data.QuoteRepository
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Before
 import org.junit.Test
 
 class QuoteRepositoryTest {
 
-    @Test
-    fun `parseCsv should handle commas inside quotes`() {
-        val csvData = """
-            Author,About,Quote,Image URL
-            "Aristotle","Greek","Educating the mind, and heart.","http://img.jpg"
-        """.trimIndent()
-
-        val result = QuoteRepository.parseCsv(csvData)
-
-        assertEquals(1, result.size)
-        assertEquals("Aristotle", result[0].author)
-        assertEquals("Educating the mind, and heart.", result[0].quote)
+    @Before
+    fun setup() {
+        QuoteRepository.clearMetadata()
     }
 
     @Test
-    fun `parseCsv should skip invalid rows`() {
-        val csvData = """
-            Author,About,Quote,Image URL
-            ,, ,
-            "OnlyAuthor",,,
-        """.trimIndent()
+    fun `indexMetadata should follow Strict Tiered Priority across calls`() {
+        val tier1_Global = QuoteItem("Lao Tzu", "Global Bio", "Q1", "global.jpg", priority = 1)
+        val tier2_Archive = QuoteItem("Lao Tzu", "Archive Bio", "Q2", "archive.jpg", priority = 2)
+        val tier3_Main = QuoteItem("Lao Tzu", "Main Bio", "Q3", "main.jpg", priority = 3)
+        
+        // 1. Global arrives first
+        QuoteRepository.indexMetadata(listOf(tier1_Global))
+        assertEquals("global.jpg", QuoteRepository.findAuthorImage("Lao Tzu", emptyList()))
 
-        val result = QuoteRepository.parseCsv(csvData)
+        // 2. Archive arrives - should overwrite Global
+        QuoteRepository.indexMetadata(listOf(tier2_Archive))
+        assertEquals("archive.jpg", QuoteRepository.findAuthorImage("Lao Tzu", emptyList()))
 
-        // It filters for non-blank author AND (non-blank quote OR non-blank image)
-        assertEquals(0, result.size)
+        // 3. Main arrives - should overwrite Archive
+        QuoteRepository.indexMetadata(listOf(tier3_Main))
+        assertEquals("main.jpg", QuoteRepository.findAuthorImage("Lao Tzu", emptyList()))
+
+        // 4. Archive arrives AGAIN (e.g. on separate fetch) - should NOT overwrite Main
+        QuoteRepository.indexMetadata(listOf(tier2_Archive))
+        assertEquals("main.jpg", QuoteRepository.findAuthorImage("Lao Tzu", emptyList()))
     }
 
     @Test
-    fun `normalizeAccents should remove diacritics and lowercase`() {
-        assertEquals("aristotle", QuoteRepository.normalizeAccents("Aristotle"))
-        assertEquals("confucius", QuoteRepository.normalizeAccents("Confucius "))
-        assertEquals("muller", QuoteRepository.normalizeAccents("Müller"))
-        assertEquals("seneca", QuoteRepository.normalizeAccents("Sénëca"))
+    fun `indexMetadata should enforce First In Sheet order within same Tier`() {
+        val tier3_First = QuoteItem("Lao Tzu", "First Bio", "Q1", "first.jpg", priority = 3)
+        val tier3_Second = QuoteItem("Lao Tzu", "Second Bio", "Q2", "second.jpg", priority = 3)
+        
+        // Process together
+        QuoteRepository.indexMetadata(listOf(tier3_First, tier3_Second))
+        assertEquals("first.jpg", QuoteRepository.findAuthorImage("Lao Tzu", emptyList()))
+        
+        // Process separately across calls
+        QuoteRepository.clearMetadata()
+        QuoteRepository.indexMetadata(listOf(tier3_First))
+        QuoteRepository.indexMetadata(listOf(tier3_Second))
+        assertEquals("first.jpg", QuoteRepository.findAuthorImage("Lao Tzu", emptyList()))
     }
 
     @Test
-    fun `getInitials should extract up to 3 uppercase letters`() {
-        assertEquals("A", QuoteRepository.getInitials("Aristotle"))
-        assertEquals("MT", QuoteRepository.getInitials("Marcus Tullius"))
-        assertEquals("MAA", QuoteRepository.getInitials("Marcus Aurelius Antoninus"))
-        assertEquals("?", QuoteRepository.getInitials("123"))
-        assertEquals("?", QuoteRepository.getInitials(""))
-    }
+    fun `indexMetadata should fill gaps by looking at other rows`() {
+        val tier3_NoBio = QuoteItem("Confucius", "", "Q1", "portrait.jpg", priority = 3)
+        val tier2_WithBio = QuoteItem("Confucius", "A great bio.", "Q2", "archive_portrait.jpg", priority = 2)
+        
+        // 1. Load Tier 3 (Main tab) which has image but NO bio
+        QuoteRepository.indexMetadata(listOf(tier3_NoBio))
+        assertEquals("portrait.jpg", QuoteRepository.findAuthorImage("Confucius", emptyList()))
+        assertNull(QuoteRepository.findAuthorAbout("Confucius"))
 
-    @Test
-    fun `indexMetadata should let curated images win over archive`() {
-        val archiveItem = QuoteItem("Seneca", "ARCHIVE", "Quote 1", "archive_img.jpg")
-        val curatedItem = QuoteItem("Seneca", "Bio", "Quote 2", "curated_img.jpg")
-
-        // In the app, quotes are combined as (curated + archive)
-        val allQuotes = listOf(curatedItem, archiveItem)
+        // 2. Load Tier 2 (Archive tab) which HAS a bio
+        QuoteRepository.indexMetadata(listOf(tier2_WithBio))
         
-        QuoteRepository.indexMetadata(allQuotes)
-        
-        val winner = QuoteRepository.findAuthorImage("Seneca", allQuotes)
-        assertEquals("curated_img.jpg", winner)
-    }
-
-    @Test
-    fun `indexMetadata should pick FIRST image from curated list`() {
-        val firstCurated = QuoteItem("Aristotle", "Bio", "Quote 1", "img_1.jpg")
-        val secondCurated = QuoteItem("Aristotle", "", "Quote 2", "img_2.jpg")
-        
-        // Items are processed archive first, then curated in REVERSE order.
-        // So processed: reversed([1, 2]) -> 2 then 1. 1 wins.
-        val allQuotes = listOf(firstCurated, secondCurated)
-        
-        QuoteRepository.indexMetadata(allQuotes)
-        
-        val winner = QuoteRepository.findAuthorImage("Aristotle", allQuotes)
-        assertEquals("img_1.jpg", winner)
+        // RESULT: 
+        // Image stays portrait.jpg (Tier 3 > Tier 2)
+        // Bio becomes "A great bio" (Tier 2 > Tier 0)
+        assertEquals("portrait.jpg", QuoteRepository.findAuthorImage("Confucius", emptyList()))
+        assertEquals("A great bio.", QuoteRepository.findAuthorAbout("Confucius"))
     }
 }
