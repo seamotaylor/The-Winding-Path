@@ -34,6 +34,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -106,55 +108,73 @@ fun MainScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            if (!uiState.isBrowsing) WisdomTopBar(
-                isDiscoverMode = uiState.isDiscoverMode,
-                onDiscoverToggle = { viewModel.toggleDiscoverMode() },
-                onRefresh = { viewModel.fetchQuotes(context) },
-                onSettings = { showSettings = true }
-            )
-        }
-    ) { inner ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.background, Color.Black)))
-                .padding(inner),
-            contentAlignment = Alignment.Center
-        ) {
-            AnimatedContent(
-                targetState = if (uiState.isLoadingGlobal) QuoteState.Loading else uiState.quoteState,
-                transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(300)) },
-                label = "MainContentAnimation"
-            ) { state ->
-                when (state) {
-                    is QuoteState.Loading -> CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    is QuoteState.Success -> {
-                        if (uiState.isBrowsing) {
-                            BrowseQuotesView(
-                                quotes = state.quotes,
-                                isDiscoverMode = uiState.isDiscoverMode,
-                                globalAuthors = uiState.globalAuthors,
-                                onDiscoverToggle = { viewModel.toggleDiscoverMode() },
-                                onQuoteSelected = { viewModel.selectBrowseItem(it) },
-                                onBack = { viewModel.setBrowsing(false) }
-                            )
-                        } else {
-                            QuoteDisplay(
-                                quotes = if (uiState.isDiscoverMode) (state.quotes + uiState.globalQuotes).distinctBy { it.quote.trim().lowercase() } else state.quotes,
-                                isDiscoverMode = uiState.isDiscoverMode,
-                                curatedDailyQuote = remember(state.quotes) { 
-                                    val q = state.quotes.filter { it.quote.isNotBlank() }
-                                    if (q.isEmpty()) null else q[Calendar.getInstance()[Calendar.DAY_OF_YEAR] % q.size] 
-                                },
-                                externalSelectedQuote = uiState.browseSelectedItem,
-                                onBrowseClick = { viewModel.setBrowsing(true) }
-                            )
+    // Root background container
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.background, Color.Black)))
+    ) {
+        AnimatedContent(
+            targetState = uiState.isBrowsing,
+            transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(300)) },
+            label = "MainContentAnimation"
+        ) { isBrowsing ->
+            if (isBrowsing) {
+                // --- BROWSER VIEW (Isolated) ---
+                val state = uiState.quoteState
+                BrowseQuotesView(
+                    quotes = if (state is QuoteState.Success) state.quotes else emptyList(),
+                    isDiscoverMode = uiState.isDiscoverMode,
+                    displayAuthors = uiState.displayAuthors,
+                    onDiscoverToggle = { viewModel.toggleDiscoverMode() },
+                    onQuoteSelected = { viewModel.selectBrowseItem(it) },
+                    onBack = { viewModel.setBrowsing(false) }
+                )
+            } else {
+                // --- HOME VIEW (Isolated) ---
+                Scaffold(
+                    containerColor = Color.Transparent,
+                    topBar = {
+                        WisdomTopBar(
+                            isDiscoverMode = uiState.isDiscoverMode,
+                            onDiscoverToggle = { viewModel.toggleDiscoverMode() },
+                            onRefresh = { viewModel.fetchQuotes(context) },
+                            onSettings = { showSettings = true }
+                        )
+                    }
+                ) { inner ->
+                    Box(Modifier.padding(inner).fillMaxSize(), contentAlignment = Alignment.Center) {
+                        when (val state = uiState.quoteState) {
+                            is QuoteState.Loading -> CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                            is QuoteState.Success -> {
+                                QuoteDisplay(
+                                    quotes = if (uiState.isDiscoverMode) (state.quotes + uiState.globalQuotes).distinctBy { it.quote.trim().lowercase() } else state.quotes,
+                                    isDiscoverMode = uiState.isDiscoverMode,
+                                    curatedDailyQuote = remember(state.quotes) { 
+                                        val q = state.quotes.filter { it.quote.isNotBlank() }
+                                        if (q.isEmpty()) null else q[Calendar.getInstance()[Calendar.DAY_OF_YEAR] % q.size] 
+                                    },
+                                    externalSelectedQuote = uiState.browseSelectedItem,
+                                    onBrowseClick = { viewModel.setBrowsing(true) }
+                                )
+                            }
+                            is QuoteState.Error -> ErrorView(state.message) { viewModel.fetchQuotes(context) }
                         }
                     }
-                    is QuoteState.Error -> ErrorView(state.message) { viewModel.fetchQuotes(context) }
                 }
+            }
+        }
+        
+        // Global discovery loading overlay (shows when fetching 30k quotes)
+        if (uiState.isLoadingGlobal) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.4f))
+                    .testTag("global_loading_overlay"), 
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         }
     }
@@ -181,7 +201,7 @@ fun SettingsContent(notifEnabled: Boolean, notifTime: Pair<Int, Int>, currentThe
         Text("About", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
         Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(model = R.mipmap.ic_launcher, contentDescription = null, modifier = Modifier.size(64.dp).onGloballyPositioned { iconRect = Rect(it.positionInWindow(), it.size.toSize()) }.clip(RoundedCornerShape(12.dp)).clickable { showF = true })
-            Spacer(Modifier.width(16.dp)); Text("The labyrinth represents the philosophical journey—a single, winding path to the center of truth.", style = MaterialTheme.typography.bodySmall, color = SecondaryText)
+            Spacer(Modifier.width(16.dp)); Text(stringResource(R.string.about_description), style = MaterialTheme.typography.bodySmall, color = SecondaryText)
         }
     }
 }
@@ -191,7 +211,12 @@ fun ThemeSelector(currentTheme: WisdomTheme, onThemeChange: (WisdomTheme) -> Uni
     LazyRow(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
         items(WisdomTheme.entries) { theme ->
             val isSelected = theme == currentTheme
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onThemeChange(theme) }) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally, 
+                modifier = Modifier
+                    .clickable { onThemeChange(theme) }
+                    .testTag("theme_item_${theme.name}")
+            ) {
                 Box(modifier = Modifier.size(48.dp).background(theme.primaryColor, CircleShape).padding(4.dp)) {
                     if (isSelected) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.3f), CircleShape).padding(8.dp), contentAlignment = Alignment.Center) { Icon(Icons.Default.Check, null, tint = Color.Black) }
                 }
@@ -205,7 +230,11 @@ fun ThemeSelector(currentTheme: WisdomTheme, onThemeChange: (WisdomTheme) -> Uni
 fun NotificationSettingsRow(enabled: Boolean, onToggle: (Boolean) -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         Column { Text("Daily Notifications", style = MaterialTheme.typography.titleMedium); Text("Receive wisdom every morning", style = MaterialTheme.typography.bodySmall) }
-        Switch(checked = enabled, onCheckedChange = onToggle)
+        Switch(
+            checked = enabled, 
+            onCheckedChange = onToggle,
+            modifier = Modifier.testTag("notification_switch")
+        )
     }
 }
 

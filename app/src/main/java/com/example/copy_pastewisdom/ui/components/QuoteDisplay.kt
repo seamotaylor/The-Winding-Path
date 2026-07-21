@@ -59,6 +59,7 @@ fun QuoteDisplay(
     val currentItem = if (shuffled.isEmpty()) null else shuffled.getOrNull(pagerState.currentPage % shuffled.size)
     val aboutSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showAbout by remember { mutableStateOf(false) }
+    var authorImages by remember { mutableStateOf<List<String>>(emptyList()) }
 
     LaunchedEffect(externalSelectedQuote) {
         externalSelectedQuote?.let { s -> 
@@ -68,12 +69,14 @@ fun QuoteDisplay(
             }
         }
     }
+
+    LaunchedEffect(currentItem, showAbout) {
+        if (showAbout && currentItem != null) {
+            authorImages = QuoteRepository.getAllImagesForAuthor(currentItem.author, quotes)
+        }
+    }
     
     if (showAbout && currentItem != null) ModalBottomSheet(onDismissRequest = { showAbout = false }, sheetState = aboutSheetState) {
-        val authorImages = (quotes.filter { QuoteRepository.normalizeAccents(it.author) == QuoteRepository.normalizeAccents(currentItem.author) && !it.imageUrl.isNullOrBlank() }
-            .map { it.imageUrl!! } + 
-            listOfNotNull(QuoteRepository.findAuthorImage(currentItem.author, quotes))).distinct()
-            
         AuthorAboutContent(
             author = currentItem.author,
             about = QuoteRepository.findAuthorAbout(currentItem.author) ?: "",
@@ -96,7 +99,7 @@ fun QuoteDisplay(
                 val isStrictlyDaily = daily != null && item.quote.trim().equals(daily.quote.trim(), ignoreCase = true)
                 QuoteCard(
                     item = item, 
-                    imgUrl = QuoteRepository.findAuthorImage(item.author, quotes), 
+                    imgUrl = QuoteRepository.findAuthorImage(item.author), 
                     isDaily = isStrictlyDaily, 
                     isDiscoverMode = isDiscoverMode,
                     pager = pagerState, 
@@ -118,7 +121,7 @@ fun QuoteDisplay(
                             pagerState.animateScrollToPage((infiniteCount / 2) - ((infiniteCount / 2) % newList.size) + newIdx) 
                         }
                     } 
-                }, modifier = Modifier.padding(bottom = 16.dp)) { Text("Return to Today's Wisdom", style = MaterialTheme.typography.labelLarge.copy(color = SecondaryText)) }
+                }, modifier = Modifier.padding(bottom = 16.dp).testTag("return_today_fab")) { Text("Return to Today's Wisdom", style = MaterialTheme.typography.labelLarge.copy(color = SecondaryText)) }
             } else Spacer(Modifier.height(64.dp))
             Button(onBrowseClick, shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 48.dp, vertical = 16.dp)) { Text("Browse All Quotes", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)) }
         }

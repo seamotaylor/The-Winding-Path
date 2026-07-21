@@ -20,20 +20,19 @@ class AuthorIdentityTest {
         // 1. Open Browser
         composeTestRule.onNodeWithText("Browse All Quotes").performClick()
 
-        // 2. Click Confucius in the list (using substring and looking in the authors_list)
+        // 2. Click Confucius in the list
         composeTestRule.onNodeWithTag("authors_list").performScrollToNode(hasText("Confucius", substring = true))
         composeTestRule.onNode(hasText("Confucius", substring = true) and hasAnyAncestor(hasTestTag("authors_list"))).performClick()
 
-        // 3. Verify we are in detail view
+        // 3. Verify Detail View
         composeTestRule.onNodeWithText("Quotes by Confucius", substring = true).assertExists()
         
         // 4. Open the "About" sheet
         composeTestRule.onNodeWithText("Tap portrait for details & photos").performClick()
         
-        // 5. Verify the Biography text exists (checking in the about sheet specifically)
-        // Since many Confucius exist, we check that at least one is the long bio (not just the name)
-        // We know your bio is long, so we can check for a specific word from it or just non-existence of fallback
+        // 5. Verify Bio NOT fallback (checking if non-placeholder content exists)
         composeTestRule.onNodeWithText("Mystery thinker").assertDoesNotExist()
+        composeTestRule.onNodeWithText("THE EXPANDED LIBRARY").assertDoesNotExist()
     }
 
     @Test
@@ -43,15 +42,16 @@ class AuthorIdentityTest {
         // 1. Open Browser
         composeTestRule.onNodeWithText("Browse All Quotes").performClick()
 
-        // 2. Scroll to and Click Lao Tzu in authors list
+        // 2. Scroll to and Click Lao Tzu
         composeTestRule.onNodeWithTag("authors_list").performScrollToNode(hasText("Lao Tzu", substring = true))
         composeTestRule.onNode(hasText("Lao Tzu", substring = true) and hasAnyAncestor(hasTestTag("authors_list"))).performClick()
         
         // 3. Open About
         composeTestRule.onNodeWithText("Tap portrait for details & photos").performClick()
         
-        // 4. Verify Bio is present and NOT fallback
+        // 4. Verify Bio NOT fallback
         composeTestRule.onNodeWithText("Mystery thinker").assertDoesNotExist()
+        composeTestRule.onNodeWithText("THE EXPANDED LIBRARY").assertDoesNotExist()
     }
 
     private fun waitForQuotes() {

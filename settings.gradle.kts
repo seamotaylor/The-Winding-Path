@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Copy-Paste Wisdom"
+rootProject.name = "The Winding Path"
 include(":app")

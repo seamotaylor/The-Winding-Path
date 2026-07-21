@@ -14,7 +14,12 @@ import androidx.compose.ui.unit.sp
 import com.example.copy_pastewisdom.data.QuoteItem
 
 @Composable
-fun QuoteTrayItem(item: QuoteItem, showAvatar: Boolean = true, onClick: () -> Unit) {
+fun QuoteTrayItem(
+    item: QuoteItem,
+    showAvatar: Boolean = true,
+    showAuthor: Boolean = true,
+    onClick: () -> Unit
+) {
     Surface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -29,17 +34,21 @@ fun QuoteTrayItem(item: QuoteItem, showAvatar: Boolean = true, onClick: () -> Un
                     lineHeight = 24.sp
                 )
             )
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (showAvatar) {
-                    AuthorAvatar(item.author, null, 24.dp)
-                    Spacer(Modifier.width(8.dp))
+            if (showAuthor || showAvatar) {
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (showAvatar) {
+                        AuthorAvatar(item.author, null, 24.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    if (showAuthor) {
+                        Text(
+                            text = "— ${item.author}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
-                Text(
-                    text = "— ${item.author}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
     }

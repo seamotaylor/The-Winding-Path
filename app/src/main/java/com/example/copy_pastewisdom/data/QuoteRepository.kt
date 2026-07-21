@@ -12,7 +12,7 @@ import java.util.regex.Pattern
 
 object QuoteRepository {
     private const val PREFS_NAME = "quote_prefs"
-    private const val KEY_CSV = "cached_quotes_csv"
+    private const val KEY_CSV = "cached_quotes_v2_csv"
     private const val KEY_NOTIFS_ENABLED = "notifs_enabled"
     private const val KEY_NOTIF_HOUR = "notif_hour"
     private const val KEY_NOTIF_MINUTE = "notif_minute"
@@ -62,7 +62,7 @@ object QuoteRepository {
             // if we process the list in original order.
             
             // 1. Image logic
-            val bestImageItem = authorQuotes.firstOrNull { !it.imageUrl.isNullOrBlank() }
+            val bestImageItem = authorQuotes.firstOrNull { it.imageUrl?.isNotBlank() == true }
             val incomingImgPriority = bestImageItem?.priority ?: 0
             val existingImgPriority = existing?.imagePriority ?: 0
             
@@ -81,7 +81,7 @@ object QuoteRepository {
             val finalImgPriority = if (finalImage == bestImageItem?.imageUrl) incomingImgPriority else existingImgPriority
 
             // 2. Biography logic
-            val bestAboutItem = authorQuotes.firstOrNull { it.about.isNotBlank() && !it.about.contains("GLOBAL", true) }
+            val bestAboutItem = authorQuotes.firstOrNull { it.about.isNotBlank() && it.about.trim().uppercase() != "THE EXPANDED LIBRARY" }
             val incomingAboutPriority = bestAboutItem?.priority ?: 0
             val existingAboutPriority = existing?.aboutPriority ?: 0
 
@@ -117,10 +117,10 @@ object QuoteRepository {
                 author = parts.getOrNull(0)?.trim()?.removeSurrounding("\"") ?: "Unknown",
                 about = parts.getOrNull(1)?.trim()?.removeSurrounding("\"") ?: "",
                 quote = parts.getOrNull(2)?.trim()?.removeSurrounding("\"") ?: "",
-                imageUrl = formatImageUrl(rawUrl),
+                imageUrl = if (rawUrl.isNullOrBlank()) null else formatImageUrl(rawUrl.trim()),
                 priority = priority
             )
-        }.filter { it.author.isNotBlank() && (it.quote.isNotBlank() || !it.imageUrl.isNullOrBlank()) }.toList()
+        }.filter { it.author.isNotBlank() && (it.quote.isNotBlank() || it.imageUrl?.isNotBlank() == true) }.toList()
     }
 
     private fun formatImageUrl(url: String?): String? {
@@ -135,7 +135,7 @@ object QuoteRepository {
     fun setNotificationsEnabled(context: Context, enabled: Boolean) { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putBoolean(KEY_NOTIFS_ENABLED, enabled) } }
     fun isNotificationsEnabled(context: Context): Boolean { return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_NOTIFS_ENABLED, false) }
     fun setNotificationTime(context: Context, hour: Int, minute: Int) { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putInt(KEY_NOTIF_HOUR, hour); putInt(KEY_NOTIF_MINUTE, minute) } }
-    fun getNotificationTime(context: Context): Pair<Int, Int> { val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE); return Pair(prefs.getInt(KEY_NOTIF_HOUR, 8), prefs.getInt(KEY_NOTIF_MINUTE, 0)) }
+    fun getNotificationTime(context: Context): Pair<Int, Int> { val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE); return Pair(prefs.getInt(KEY_NOTIF_HOUR, 9), prefs.getInt(KEY_NOTIF_MINUTE, 0)) }
     fun setTheme(context: Context, theme: WisdomTheme) { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putString(KEY_THEME, theme.name) } }
     fun getTheme(context: Context): WisdomTheme { val name = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_THEME, WisdomTheme.Neutral.name); return try { WisdomTheme.valueOf(name!!) } catch (_: Exception) { WisdomTheme.Neutral } }
 
@@ -143,22 +143,46 @@ object QuoteRepository {
         return author.split(" ").filter { it.isNotBlank() && it.first().isLetter() }.mapNotNull { it.firstOrNull()?.uppercase() }.take(3).let { if (it.isEmpty()) "?" else it.joinToString("") }
     }
 
-    fun findAuthorImage(authorName: String, allQuotes: List<QuoteItem>): String? {
+    fun findAuthorImage(authorName: String): String? {
         val norm = normalizeAccents(authorName)
-        authorMetadata[norm]?.imageUrl?.let { return it }
-        val img = allQuotes.filter { normalizeAccents(it.author) == norm && !it.imageUrl.isNullOrBlank() }
-            .maxByOrNull { it.priority }?.imageUrl
-        return img
+        return authorMetadata[norm]?.imageUrl
     }
 
     fun findAuthorAbout(authorName: String): String? { return authorMetadata[normalizeAccents(authorName)]?.about }
+
+    suspend fun getAllImagesForAuthor(authorName: String, curatedQuotes: List<QuoteItem>): List<String> = withContext(Dispatchers.IO) {
+        val norm = normalizeAccents(authorName)
+        val curatedImages = curatedQuotes.filter { normalizeAccents(it.author) == norm && it.imageUrl?.isNotBlank() == true }
+            .mapNotNull { it.imageUrl?.trim() }
+        
+        val globalImages = getAllGlobalQuotes().filter { normalizeAccents(it.author) == norm && it.imageUrl?.isNotBlank() == true }
+            .mapNotNull { it.imageUrl?.trim() }
+            
+        (curatedImages + globalImages).distinctBy { normalizeUrl(it) }
+    }
+
+    suspend fun fetchRawSheetData(sid: String, gid: String): String = withContext(Dispatchers.IO) {
+        val ts = System.currentTimeMillis()
+        val url = "https://docs.google.com/spreadsheets/d/$sid/export?format=csv&gid=$gid&t=$ts"
+        URL(url).readText()
+    }
 
     fun normalizeAccents(text: String): String {
         val temp = Normalizer.normalize(text, Normalizer.Form.NFD)
         return Pattern.compile("\\p{InCombiningDiacriticalMarks}+").matcher(temp).replaceAll("").lowercase().trim()
     }
 
+    fun normalizeUrl(url: String?): String {
+        if (url.isNullOrBlank()) return ""
+        return url.trim()
+            .replace("http://", "https://")
+            .removeSuffix("/")
+            .lowercase()
+    }
+
     private var globalQuotesCache: List<QuoteItem>? = null
+    private var globalAuthorsCache: List<Pair<String, Int>>? = null
+    private var globalTagsCache: List<Pair<String, Int>>? = null
 
     suspend fun getAllGlobalQuotes(): List<QuoteItem> {
         if (globalQuotesCache != null) return globalQuotesCache!!
@@ -167,33 +191,52 @@ object QuoteRepository {
 
     private suspend fun fetchGlobalQuotes(): List<QuoteItem>? = withContext(Dispatchers.IO) {
         try {
+            Log.d("QuoteRepository", "Fetching global quotes library...")
             val jsonText = URL("https://raw.githubusercontent.com/dwyl/quotes/master/quotes.json").readText()
             val array = JSONArray(jsonText)
-            val list = mutableListOf<QuoteItem>()
+            Log.d("QuoteRepository", "Downloaded ${array.length()} raw global quotes.")
+            val list = ArrayList<QuoteItem>(array.length())
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
                 val rawAuthor = obj.optString("author", "Unknown").trim()
-                val tagList = obj.optString("tags", "").split(",").map { it.trim().lowercase() }.filter { it.isNotBlank() }
+                val tagsRaw = obj.optString("tags", "")
+                val tagList = if (tagsRaw.isBlank()) emptyList() else tagsRaw.split(",").map { it.trim().lowercase() }.filter { it.isNotBlank() }
                 list.add(QuoteItem(
                     author = if (rawAuthor == "type.fit") "Unknown" else rawAuthor, 
                     quote = obj.optString("text", ""), 
-                    about = "GLOBAL DISCOVERY", 
+                    about = "THE EXPANDED LIBRARY", 
                     tags = tagList,
                     priority = 1
                 ))
             }
             globalQuotesCache = list
+            Log.d("QuoteRepository", "Successfully parsed ${list.size} unique global quotes.")
             list
-        } catch (e: Exception) { Log.e("QuoteRepository", "Error fetching global quotes", e); null }
+        } catch (e: Throwable) { 
+            Log.e("QuoteRepository", "Error fetching global quotes: ${e.message}", e)
+            if (e is OutOfMemoryError) {
+                globalQuotesCache = null // Ensure we don't hold onto partial data
+            }
+            null 
+        }
     }
 
     suspend fun findRandomGlobalQuote(): QuoteItem? {
         val all = getAllGlobalQuotes()
-        return if (all.isNotEmpty()) all.random().copy(about = "GLOBAL DISCOVERY") else null
+        return if (all.isNotEmpty()) all.random().copy(about = "THE EXPANDED LIBRARY") else null
     }
 
     suspend fun getAllGlobalAuthors(): List<Pair<String, Int>> = withContext(Dispatchers.IO) {
-        getAllGlobalQuotes().asSequence().map { it.author }.filter { it.isNotBlank() && it != "Unknown" }.groupingBy { it }.eachCount().toList().sortedBy { it.first }
+        globalAuthorsCache?.let { return@withContext it }
+        val result = getAllGlobalQuotes().asSequence()
+            .map { it.author }
+            .filter { it.isNotBlank() && it != "Unknown" }
+            .groupingBy { it }
+            .eachCount()
+            .toList()
+            .sortedBy { it.first }
+        globalAuthorsCache = result
+        result
     }
 
     suspend fun getGlobalQuotesForAuthor(authorName: String): List<QuoteItem> = withContext(Dispatchers.IO) {
@@ -202,7 +245,15 @@ object QuoteRepository {
     }
 
     suspend fun getAllGlobalTags(): List<Pair<String, Int>> = withContext(Dispatchers.IO) {
-        getAllGlobalQuotes().asSequence().flatMap { it.tags }.groupingBy { it }.eachCount().toList().sortedBy { it.first }
+        globalTagsCache?.let { return@withContext it }
+        val result = getAllGlobalQuotes().asSequence()
+            .flatMap { it.tags }
+            .groupingBy { it }
+            .eachCount()
+            .toList()
+            .sortedBy { it.first }
+        globalTagsCache = result
+        result
     }
 
     suspend fun getGlobalQuotesByTag(tag: String): List<QuoteItem> = withContext(Dispatchers.IO) {
@@ -223,7 +274,7 @@ object QuoteRepository {
                 return@withContext QuoteItem(
                     author = obj.optString("a", "Unknown"), 
                     quote = obj.optString("q", ""), 
-                    about = "GLOBAL DISCOVERY",
+                    about = "THE EXPANDED LIBRARY",
                     priority = 1
                 )
             }

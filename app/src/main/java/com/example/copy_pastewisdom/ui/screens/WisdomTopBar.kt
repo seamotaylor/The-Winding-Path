@@ -11,6 +11,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
+import com.example.copy_pastewisdom.R
 import com.example.copy_pastewisdom.ui.theme.SecondaryText
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -19,7 +21,7 @@ fun WisdomTopBar(isDiscoverMode: Boolean, onDiscoverToggle: () -> Unit, onRefres
     CenterAlignedTopAppBar(
         title = { 
             Text(
-                text = if (isDiscoverMode) "Global Discovery" else "Copy-Paste Wisdom", 
+                text = stringResource(R.string.app_name), 
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Light, color = SecondaryText)
             ) 
         },
@@ -45,7 +47,12 @@ fun WisdomTopBar(isDiscoverMode: Boolean, onDiscoverToggle: () -> Unit, onRefres
         },
         actions = { 
             IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, null, tint = SecondaryText) }
-            IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, null, tint = SecondaryText) } 
+            IconButton(
+                onClick = onSettings,
+                modifier = Modifier.testTag("settings_button")
+            ) { 
+                Icon(Icons.Default.Settings, null, tint = SecondaryText) 
+            } 
         },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
     )

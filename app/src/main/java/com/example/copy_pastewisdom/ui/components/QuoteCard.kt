@@ -39,8 +39,8 @@ fun QuoteCard(
 ) {
     val headerTitle = when {
         isDaily -> "TODAY'S WISDOM"
-        isDiscoverMode -> "GLOBAL DISCOVERY"
-        else -> "SHUFFLED WISDOM"
+        isDiscoverMode -> "THE EXPANDED LIBRARY"
+        else -> "CURATED ANTHOLOGY"
     }
 
     ElevatedCard(
