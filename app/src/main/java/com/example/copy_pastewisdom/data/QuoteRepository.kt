@@ -16,6 +16,7 @@ object QuoteRepository {
     private const val KEY_NOTIFS_ENABLED = "notifs_enabled"
     private const val KEY_NOTIF_HOUR = "notif_hour"
     private const val KEY_NOTIF_MINUTE = "notif_minute"
+    private const val KEY_NOTIF_EXPANDED = "notif_expanded"
     private const val KEY_THEME = "app_theme"
 
     private val authorMetadata = mutableMapOf<String, AuthorMetadata>()
@@ -139,6 +140,35 @@ object QuoteRepository {
     fun setTheme(context: Context, theme: WisdomTheme) { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putString(KEY_THEME, theme.name) } }
     fun getTheme(context: Context): WisdomTheme { val name = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_THEME, WisdomTheme.Neutral.name); return try { WisdomTheme.valueOf(name!!) } catch (_: Exception) { WisdomTheme.Neutral } }
 
+    fun isNotifExpanded(context: Context): Boolean {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_NOTIF_EXPANDED, false)
+    }
+
+    fun setNotifExpanded(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putBoolean(KEY_NOTIF_EXPANDED, enabled) }
+    }
+
+    fun getDailyWisdom(context: Context): QuoteItem? {
+        val allQuotes = getQuotesFromCache(context)
+        val expanded = isNotifExpanded(context)
+        
+        // Priority 3 is Main Tab (Curated), Priority 2 is Archive Tab (Expanded)
+        val pool = allQuotes.filter { 
+            it.quote.isNotBlank() && (expanded || it.priority == 3)
+        }
+        
+        if (pool.isEmpty()) {
+            // Fallback to any non-blank quote if the specific pool is empty
+            val fallbackPool = allQuotes.filter { it.quote.isNotBlank() }
+            if (fallbackPool.isEmpty()) return null
+            val dayOfYear = java.util.Calendar.getInstance()[java.util.Calendar.DAY_OF_YEAR]
+            return fallbackPool[dayOfYear % fallbackPool.size]
+        }
+        
+        val dayOfYear = java.util.Calendar.getInstance()[java.util.Calendar.DAY_OF_YEAR]
+        return pool[dayOfYear % pool.size]
+    }
+
     fun getInitials(author: String): String {
         return author.split(" ").filter { it.isNotBlank() && it.first().isLetter() }.mapNotNull { it.firstOrNull()?.uppercase() }.take(3).let { if (it.isEmpty()) "?" else it.joinToString("") }
     }
@@ -152,13 +182,15 @@ object QuoteRepository {
 
     suspend fun getAllImagesForAuthor(authorName: String, curatedQuotes: List<QuoteItem>): List<String> = withContext(Dispatchers.IO) {
         val norm = normalizeAccents(authorName)
+        val primaryImage = findAuthorImage(authorName)?.trim()
+        
         val curatedImages = curatedQuotes.filter { normalizeAccents(it.author) == norm && it.imageUrl?.isNotBlank() == true }
             .mapNotNull { it.imageUrl?.trim() }
         
         val globalImages = getAllGlobalQuotes().filter { normalizeAccents(it.author) == norm && it.imageUrl?.isNotBlank() == true }
             .mapNotNull { it.imageUrl?.trim() }
             
-        (curatedImages + globalImages).distinctBy { normalizeUrl(it) }
+        (listOfNotNull(primaryImage) + curatedImages + globalImages).distinctBy { normalizeUrl(it) }
     }
 
     suspend fun fetchRawSheetData(sid: String, gid: String): String = withContext(Dispatchers.IO) {

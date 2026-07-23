@@ -1,7 +1,10 @@
 package com.example.copy_pastewisdom
 
+import android.util.Log
 import com.example.copy_pastewisdom.data.QuoteItem
 import com.example.copy_pastewisdom.data.QuoteRepository
+import io.mockk.every
+import io.mockk.mockkStatic
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
@@ -11,6 +14,10 @@ class QuoteRepositoryTest {
 
     @Before
     fun setup() {
+        mockkStatic(Log::class)
+        every { Log.d(any(), any()) } returns 0
+        every { Log.e(any(), any()) } returns 0
+        every { Log.e(any(), any(), any()) } returns 0
         QuoteRepository.clearMetadata()
     }
 
@@ -81,5 +88,17 @@ class QuoteRepositoryTest {
         QuoteRepository.indexMetadata(listOf(tier3_LaoTzu, tier1_Global))
 
         assertEquals("Lao Tzu is a global icon of wisdom.", QuoteRepository.findAuthorAbout("Lao Tzu"))
+    }
+
+    @Test
+    fun `getAllImagesForAuthor should include primary portrait from metadata even if not in provided list`() = kotlinx.coroutines.test.runTest {
+        val tier3_Main = QuoteItem("Napoleon", "Bio", "Q1", "napoleon_portrait.jpg", priority = 3)
+        QuoteRepository.indexMetadata(listOf(tier3_Main))
+        
+        // Simulating a call from Expanded Library where curatedQuotes might be empty or filtered
+        val images = QuoteRepository.getAllImagesForAuthor("Napoleon", emptyList())
+        
+        assertEquals(1, images.size)
+        assertEquals("napoleon_portrait.jpg", images[0])
     }
 }

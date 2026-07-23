@@ -13,16 +13,17 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
 - **Offline-First Architecture**: Caches the entire 30k archive and curated list for a 100% functional experience without an internet connection.
 
 ### 🎡 Navigation & Experience
-- **Author Identity Drawer**: An enhanced Modal Bottom Sheet that provides deep dives into author biographies, featuring smart paragraph formatting and a multi-image gallery.
-- **Animated Zoom Gallery**: Tap any author portrait to enter an immersive, animated full-screen view with pinch-to-zoom and pan support.
+- **Author Identity Drawer**: An enhanced Modal Bottom Sheet that provides deep dives into author biographies, featuring smart paragraph formatting and a multi-image gallery with a high-contrast "Dark Studio" mode.
+- **Animated Zoom Gallery**: Tap any author portrait to enter an immersive, animated full-screen view with pinch-to-zoom, pan support, and a dedicated contrast toggle for optimal legibility across different source images.
 - **Swipeable Browser**: A high-performance navigation system allowing you to swipe between **Authors** and **Topics** effortlessly.
 - **Fast-Scroll Browser**: A dedicated scroll bar with a dynamic **Letter Bubble** that moves with your thumb, allowing you to zip through thousands of authors in seconds.
 - **Endless Quote Pager**: An infinitely looping shuffled deck of wisdom with haptic feedback and smooth scale/alpha transformations.
-- **Tray Visuals**: Quotes are displayed in premium "Visual Trays" (inspired by editorial card designs) with italics and integrated author signatures.
+- **Tray Visuals**: Quotes are displayed in premium "Visual Trays" (inspired by editorial card designs) with italics, integrated author signatures, and "Learn More" links.
 
 ### 🔔 Smart Notifications
 - **Exact 24-Hour Timing**: High-precision delivery using `AlarmManager`, bypassing system "Doze" delays to hit your target time exactly.
 - **Rich Visuals**: Notifications feature author portraits and `BigTextStyle` for full-quote expansion.
+- **Customizable Source**: Toggle between receiving only **Curated Wisdom** or wisdom from the **Full Library** in your daily reminders.
 
 ## 🏗️ Architecture & Stability
 

@@ -18,7 +18,6 @@ import coil.request.ImageRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.util.Calendar
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -31,16 +30,13 @@ class AlarmReceiver : BroadcastReceiver() {
             return
         }
 
-        val quotes = QuoteRepository.getQuotesFromCache(context)
-        if (quotes.isNotEmpty()) {
-            // Match app logic: Use day of year to select "Today's Wisdom"
-            val dayOfYear = Calendar.getInstance()[Calendar.DAY_OF_YEAR]
-            val item = quotes[dayOfYear % quotes.size]
-            
+        val dailyWisdom = QuoteRepository.getDailyWisdom(context)
+        if (dailyWisdom != null) {
+            val quotes = QuoteRepository.getQuotesFromCache(context)
             // We need a coroutine for Coil image loading
             CoroutineScope(Dispatchers.Main).launch {
-                val portrait = fetchPortrait(context, item, quotes)
-                showNotification(context, item, portrait)
+                val portrait = fetchPortrait(context, dailyWisdom, quotes)
+                showNotification(context, dailyWisdom, portrait)
                 // Schedule for tomorrow
                 NotificationScheduler.scheduleDailyNotification(context)
             }

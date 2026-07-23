@@ -49,7 +49,6 @@ import com.example.copy_pastewisdom.logic.NotificationScheduler
 import com.example.copy_pastewisdom.ui.components.*
 import com.example.copy_pastewisdom.ui.theme.SecondaryText
 import com.example.copy_pastewisdom.ui.viewmodels.MainViewModel
-import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,6 +86,7 @@ fun MainScreen(
         SettingsContent(
             notifEnabled = uiState.notificationsEnabled,
             notifTime = uiState.notificationTime,
+            notifExpanded = uiState.notifExpanded,
             currentTheme = currentTheme,
             onThemeChange = onThemeChange,
             onToggle = { checked ->
@@ -104,7 +104,8 @@ fun MainScreen(
                     NotificationScheduler.cancelDailyNotification(context)
                 }
             },
-            onShowTime = { timePicker.show() }
+            onShowTime = { timePicker.show() },
+            onExpandedToggle = { viewModel.setNotifExpanded(context, it) }
         )
     }
 
@@ -150,9 +151,8 @@ fun MainScreen(
                                 QuoteDisplay(
                                     quotes = if (uiState.isDiscoverMode) (state.quotes + uiState.globalQuotes).distinctBy { it.quote.trim().lowercase() } else state.quotes,
                                     isDiscoverMode = uiState.isDiscoverMode,
-                                    curatedDailyQuote = remember(state.quotes) { 
-                                        val q = state.quotes.filter { it.quote.isNotBlank() }
-                                        if (q.isEmpty()) null else q[Calendar.getInstance()[Calendar.DAY_OF_YEAR] % q.size] 
+                                    curatedDailyQuote = remember(state.quotes, uiState.notifExpanded) { 
+                                        QuoteRepository.getDailyWisdom(context)
                                     },
                                     externalSelectedQuote = uiState.browseSelectedItem,
                                     onBrowseClick = { viewModel.setBrowsing(true) }
@@ -181,7 +181,16 @@ fun MainScreen(
 }
 
 @Composable
-fun SettingsContent(notifEnabled: Boolean, notifTime: Pair<Int, Int>, currentTheme: WisdomTheme, onThemeChange: (WisdomTheme) -> Unit, onToggle: (Boolean) -> Unit, onShowTime: () -> Unit) {
+fun SettingsContent(
+    notifEnabled: Boolean, 
+    notifTime: Pair<Int, Int>, 
+    notifExpanded: Boolean,
+    currentTheme: WisdomTheme, 
+    onThemeChange: (WisdomTheme) -> Unit, 
+    onToggle: (Boolean) -> Unit, 
+    onShowTime: () -> Unit,
+    onExpandedToggle: (Boolean) -> Unit
+) {
     var showF by remember { mutableStateOf(false) }; var iconRect by remember { mutableStateOf<Rect?>(null) }
     if (showF) AnimatedZoomDialog({ showF = false }, iconRect) { s, a, o, d ->
         Box(contentAlignment = Alignment.Center) {
@@ -196,6 +205,7 @@ fun SettingsContent(notifEnabled: Boolean, notifTime: Pair<Int, Int>, currentThe
         Spacer(Modifier.height(16.dp)); HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(0.1f))
         Text("Reminders", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
         NotificationSettingsRow(notifEnabled, onToggle)
+        NotificationContentRow(notifExpanded, onExpandedToggle)
         TimeSettingsRow(notifTime.first, notifTime.second, onShowTime)
         Spacer(Modifier.height(16.dp)); HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(0.1f))
         Text("About", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
@@ -228,12 +238,27 @@ fun ThemeSelector(currentTheme: WisdomTheme, onThemeChange: (WisdomTheme) -> Uni
 
 @Composable
 fun NotificationSettingsRow(enabled: Boolean, onToggle: (Boolean) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Column { Text("Daily Notifications", style = MaterialTheme.typography.titleMedium); Text("Receive wisdom every morning", style = MaterialTheme.typography.bodySmall) }
+    Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Column(Modifier.weight(1f)) { Text("Daily Notifications", style = MaterialTheme.typography.titleMedium); Text("Receive wisdom every morning", style = MaterialTheme.typography.bodySmall) }
         Switch(
             checked = enabled, 
             onCheckedChange = onToggle,
             modifier = Modifier.testTag("notification_switch")
+        )
+    }
+}
+
+@Composable
+fun NotificationContentRow(expanded: Boolean, onToggle: (Boolean) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Column(Modifier.weight(1f)) { 
+            Text("Daily Wisdom Source", style = MaterialTheme.typography.titleMedium)
+            Text(if (expanded) "Includes full library" else "Curated wisdom only", style = MaterialTheme.typography.bodySmall) 
+        }
+        Switch(
+            checked = expanded, 
+            onCheckedChange = onToggle,
+            modifier = Modifier.testTag("notification_expanded_switch")
         )
     }
 }

@@ -30,7 +30,8 @@ data class MainUiState(
     val isBrowsing: Boolean = false,
     val browseSelectedItem: QuoteItem? = null,
     val notificationsEnabled: Boolean = false,
-    val notificationTime: Pair<Int, Int> = Pair(9, 0)
+    val notificationTime: Pair<Int, Int> = Pair(9, 0),
+    val notifExpanded: Boolean = false
 )
 
 class MainViewModel(
@@ -55,7 +56,8 @@ class MainViewModel(
         updateState { 
             it.copy(
                 notificationsEnabled = QuoteRepository.isNotificationsEnabled(context),
-                notificationTime = QuoteRepository.getNotificationTime(context)
+                notificationTime = QuoteRepository.getNotificationTime(context),
+                notifExpanded = QuoteRepository.isNotifExpanded(context)
             )
         }
         fetchQuotes(context)
@@ -173,5 +175,10 @@ class MainViewModel(
 
     fun setNotificationTime(hour: Int, minute: Int) {
         updateState { it.copy(notificationTime = Pair(hour, minute)) }
+    }
+
+    fun setNotifExpanded(context: Context, enabled: Boolean) {
+        QuoteRepository.setNotifExpanded(context, enabled)
+        updateState { it.copy(notifExpanded = enabled) }
     }
 }

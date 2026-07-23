@@ -1,5 +1,6 @@
 package com.example.copy_pastewisdom.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.rememberScrollState
@@ -9,11 +10,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -92,14 +93,29 @@ fun QuoteCard(
                 )
                 Text("”", style = MaterialTheme.typography.displayLarge, color = MaterialTheme.colorScheme.primary.copy(0.7f), modifier = Modifier.align(Alignment.End)) 
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth().padding(top = 16.dp).alpha(0.9f)) { 
+            Row(
+                verticalAlignment = Alignment.CenterVertically, 
+                horizontalArrangement = Arrangement.Center, 
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp)
+                    .alpha(0.9f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { onAbout() }
+                    .padding(8.dp)
+            ) { 
                 AuthorAvatar(item.author, imgUrl, 150.dp)
                 Spacer(Modifier.width(20.dp))
                 Column(Modifier.weight(1f, false)) { 
                     Text(item.author, style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold, color = PrimaryText))
-                    TextButton(onAbout, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(32.dp)) { 
-                        Text("Learn more", style = MaterialTheme.typography.labelMedium.copy(color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)) 
-                    } 
+                    Text(
+                        text = "Learn more", 
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            color = MaterialTheme.colorScheme.primary, 
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) 
                 } 
             }
         }
