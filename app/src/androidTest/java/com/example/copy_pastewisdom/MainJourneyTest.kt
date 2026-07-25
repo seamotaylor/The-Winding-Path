@@ -1,13 +1,9 @@
 package com.example.copy_pastewisdom
 
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -122,7 +118,7 @@ class MainJourneyTest {
                 // If we can scroll to index 25, we have successfully expanded past curated quotes
                 composeTestRule.onNodeWithTag("authors_list").performScrollToIndex(25)
                 true
-            } catch (e: Throwable) {
+            } catch (_: Throwable) {
                 false
             }
         }
@@ -219,7 +215,7 @@ class MainJourneyTest {
         // We'll just click the first one available
         composeTestRule.onAllNodes(hasText("“", substring = true)).onFirst().performClick()
         
-        // 4. Verify browser closed and we are on home screen (looking for "Browse All Quotes" button)
+        // 4. Verify browser closed, and we are on home screen (looking for "Browse All Quotes" button)
         composeTestRule.onNodeWithText("Browse All Quotes").assertExists()
     }
 

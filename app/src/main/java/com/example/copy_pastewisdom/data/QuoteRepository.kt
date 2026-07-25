@@ -161,12 +161,17 @@ object QuoteRepository {
             // Fallback to any non-blank quote if the specific pool is empty
             val fallbackPool = allQuotes.filter { it.quote.isNotBlank() }
             if (fallbackPool.isEmpty()) return null
-            val dayOfYear = java.util.Calendar.getInstance()[java.util.Calendar.DAY_OF_YEAR]
-            return fallbackPool[dayOfYear % fallbackPool.size]
+            
+            val calendar = java.util.Calendar.getInstance()
+            val seed = calendar[java.util.Calendar.YEAR] * 1000L + calendar[java.util.Calendar.DAY_OF_YEAR]
+            val random = kotlin.random.Random(seed)
+            return fallbackPool[random.nextInt(fallbackPool.size)]
         }
         
-        val dayOfYear = java.util.Calendar.getInstance()[java.util.Calendar.DAY_OF_YEAR]
-        return pool[dayOfYear % pool.size]
+        val calendar = java.util.Calendar.getInstance()
+        val seed = calendar[java.util.Calendar.YEAR] * 1000L + calendar[java.util.Calendar.DAY_OF_YEAR]
+        val random = kotlin.random.Random(seed)
+        return pool[random.nextInt(pool.size)]
     }
 
     fun getInitials(author: String): String {

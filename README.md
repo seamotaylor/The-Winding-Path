@@ -7,8 +7,8 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
 ### 🏮 Content & Curation
 - **The Expanded Library**: Seamlessly switch between your **Curated Anthology** and the massive 30,000+ quote global library with a dynamic mode indicator.
 - **Dynamic Google Sheets Sync**: Real-time synchronization with a published CSV backend, featuring manual refresh and intelligent cache-busting.
-- **Smart Deduplication**: Advanced accent normalization automatically merges authors with different diacritics (e.g., "Niccolo" and "Niccolò"), prioritizing your curated names and portraits.
-- **Handpicked Order**: The app intelligently handles multiple rows for the same author, ensuring that your **first** curated image in the sheet becomes the default portrait.
+- **Smart Deduplication & Priority**: Advanced accent normalization automatically merges authors with different diacritics (e.g., \"Niccolo\" and \"Niccolò\"). A robust multi-tier priority system (Main Sheet > Archive > Global Library) ensures that curated data always takes precedence.
+- **Handpicked Order**: The app intelligently handles multiple rows for the same author, ensuring that the **first** appearance in your curated sheet becomes the default portrait, preserving your editorial intent.
 - **ZenQuotes & Lucky Discovery**: Integration with the ZenQuotes API for "I'm Feeling Lucky" surprises, with a fallback to the local archive.
 - **Offline-First Architecture**: Caches the entire 30k archive and curated list for a 100% functional experience without an internet connection.
 
@@ -37,9 +37,9 @@ The app follows a modern, decoupled **Clean Architecture** to ensure stability a
 ## 🧪 Testing Suite
 
 Stability is guarded by a dual-layer automated testing strategy using the latest **AndroidX Test** and **Espresso** stacks:
-- **Comprehensive Coverage**: 20+ automated tests verifying the "fragile" core logic, UI integrity, and end-to-end journeys.
-- **Unit Tests**: Verifying CSV parsing robustness (handling commas inside quotes) and name normalization.
-- **Identity Integrity Tests**: Specialized UI tests that verify the correct rendering of biographies and metadata for key figures (e.g., Confucius, Lao Tzu).
+- **Comprehensive Coverage**: 25+ automated tests verifying the \"fragile\" core logic, UI integrity, and end-to-end journeys.
+- **Unit Tests**: Verifying CSV parsing robustness (handling commas inside quotes), name normalization, and the **Daily Wisdom Determinism**—ensuring the daily quote remains stable throughout the day.
+- **Identity Integrity Tests**: Specialized UI tests that verify the correct rendering of biographies and metadata for key figures (e.g., Confucius, Lao Tzu) within the Author Identity Drawer.
 - **End-to-End UI Tests**: Automated journey testing that verifies the "Golden Path"—launching, loading, and browser navigation. Optimized with increased timeouts and robust semantic matching for reliable CI/CD execution.
 
 ## 🛠️ Technical Stack
