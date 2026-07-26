@@ -133,8 +133,8 @@ class MainViewModel(
         val displayable = quotes.filter { it.quote.isNotBlank() }
         val shuffled = displayable.shuffled()
         val daily = QuoteRepository.getDailyWisdom(context)
-        val dailyIdx = if (daily == null) -1 
-            else shuffled.indexOfFirst { it.quote.trim().equals(daily.quote.trim(), ignoreCase = true) }
+        val dailyIdx = if (daily == null) 0
+            else shuffled.indexOfFirst { it.quote.trim().equals(daily.quote.trim(), ignoreCase = true) }.let { if (it == -1) 0 else it }
             
         _uiState.update { it.copy(
             shuffledQuotes = shuffled,

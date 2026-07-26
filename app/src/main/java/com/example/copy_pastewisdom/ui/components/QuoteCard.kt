@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -82,7 +83,8 @@ fun QuoteCard(
                         letterSpacing = 2.sp, 
                         fontWeight = FontWeight.Bold, 
                         color = if (isDaily) MaterialTheme.colorScheme.primary else SecondaryText
-                    )
+                    ),
+                    modifier = Modifier.testTag("quote_header_label")
                 )
                 if (isDaily) Text(
                     text = "Swipe for more", 

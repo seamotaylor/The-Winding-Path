@@ -31,8 +31,9 @@ class MainJourneyTest {
         waitForQuotes()
         
         // 1. Initial state check - wait for cards to be ready
+        // Accept either TODAY or CURATED since we might land on different index
         composeTestRule.waitUntil(timeoutMillis = 15000) {
-            composeTestRule.onAllNodes(hasText("WISDOM", substring = true)).fetchSemanticsNodes().isNotEmpty()
+            composeTestRule.onAllNodes(hasTestTag("quote_header_label")).fetchSemanticsNodes().isNotEmpty()
         }
 
         // 2. Toggle Discovery Mode
@@ -54,20 +55,30 @@ class MainJourneyTest {
     fun verify_return_to_today_logic() {
         waitForQuotes()
         
-        // 1. Swipe a few times
-        repeat(2) {
-            composeTestRule.onNodeWithTag("quote_pager").performTouchInput { swipeLeft() }
+        // 1. Ensure we are starting at TODAY
+        composeTestRule.onNodeWithText("TODAY", substring = true).assertExists()
+
+        // 2. Swipe to next - repeat to be sure we moved
+        repeat(3) {
+            composeTestRule.onNodeWithTag("quote_pager").performTouchInput { 
+                swipeLeft(durationMillis = 1000) 
+            }
             composeTestRule.waitForIdle()
         }
         
-        // 2. Click "Return to Today"
-        // Wait for the button to appear since it's conditional on being away from the daily quote
-        composeTestRule.waitUntil(timeoutMillis = 5000) {
+        // 3. Verify we are NOT at TODAY anymore
+        composeTestRule.onNodeWithText("TODAY", substring = true).assertDoesNotExist()
+
+        // 4. Click "Return to Today"
+        composeTestRule.waitUntil(timeoutMillis = 20000) {
             composeTestRule.onAllNodes(hasTestTag("return_today_fab")).fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithTag("return_today_fab").performClick()
         
-        // 3. Verify we are back at TODAY
+        // 5. Verify we are back at TODAY
+        composeTestRule.waitUntil(timeoutMillis = 10000) {
+            composeTestRule.onAllNodes(hasText("TODAY", substring = true)).fetchSemanticsNodes().isNotEmpty()
+        }
         composeTestRule.onNodeWithText("TODAY", substring = true).assertExists()
     }
 
@@ -164,7 +175,7 @@ class MainJourneyTest {
         composeTestRule.onNodeWithText("Browse All Quotes").performClick()
         
         // 2. Type "Marcus" in search
-        composeTestRule.onNodeWithText("Search authors...").performTextInput("Marcus")
+        composeTestRule.onNodeWithTag("browser_search_field").performTextInput("Marcus")
         
         // 3. Verify Marcus Aurelius is visible
         composeTestRule.onNodeWithText("Marcus Aurelius", substring = true).assertExists()

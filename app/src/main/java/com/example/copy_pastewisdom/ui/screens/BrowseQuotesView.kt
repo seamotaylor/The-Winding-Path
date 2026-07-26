@@ -232,7 +232,7 @@ fun DiscoveryDashboard(
         OutlinedTextField(
             value = uiState.searchQuery, 
             onValueChange = { viewModel.setSearchQuery(it) }, 
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), 
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag("browser_search_field"), 
             placeholder = { Text(if (browserPagerState.currentPage == 0) "Search authors..." else "Search topics...") }, 
             leadingIcon = { Icon(Icons.Default.Search, null) }, 
             singleLine = true, 

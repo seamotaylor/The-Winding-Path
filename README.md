@@ -45,7 +45,8 @@ Stability is guarded by a dual-layer automated testing strategy using the latest
 - **Comprehensive Coverage**: 25+ automated tests verifying the \"fragile\" core logic, UI integrity, and end-to-end journeys.
 - **Unit Tests**: Verifying CSV parsing robustness (handling commas inside quotes), name normalization, and the **Daily Wisdom Determinism**—ensuring the daily quote remains stable throughout the day.
 - **Identity Integrity Tests**: Specialized UI tests that verify the correct rendering of biographies and metadata for key figures (e.g., Confucius, Lao Tzu) within the Author Identity Drawer.
-- **End-to-End UI Tests**: Automated journey testing that verifies the "Golden Path"—launching, loading, and browser navigation. Optimized with increased timeouts and robust semantic matching for reliable CI/CD execution.
+- **End-to-End UI Tests**: Automated journey testing that verifies the "Golden Path"—launching, loading, drawer interactions, and browser navigation. Optimized with increased timeouts (up to 20s) and robust semantic matching for reliable CI/CD execution across various device speeds.
+- **Robust Infrastructure**: Updated to the latest stable test stack (JUnit 1.3.0, Espresso 3.7.0) with standardized runner configurations and improved wait-until logic for asynchronous content loading.
 
 ## 🛠️ Technical Stack
 
