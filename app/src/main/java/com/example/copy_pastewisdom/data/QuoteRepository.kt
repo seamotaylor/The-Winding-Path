@@ -126,11 +126,21 @@ object QuoteRepository {
 
     private fun formatImageUrl(url: String?): String? {
         if (url.isNullOrBlank()) return null
-        if (url.contains("drive.google.com/file/d/")) {
-            val fileId = url.substringAfter("/d/").substringBefore("/")
-            return "https://lh3.googleusercontent.com/d/$fileId"
+        
+        // Handle common Google Drive share link formats
+        val driveId = if (url.contains("drive.google.com") || url.contains("docs.google.com")) {
+            when {
+                url.contains("/d/") -> url.substringAfter("/d/").substringBefore("/").substringBefore("?")
+                url.contains("id=") -> url.substringAfter("id=").substringBefore("&")
+                else -> null
+            }
+        } else null
+
+        return if (driveId != null) {
+            "https://lh3.googleusercontent.com/d/$driveId"
+        } else {
+            url
         }
-        return url
     }
 
     fun setNotificationsEnabled(context: Context, enabled: Boolean) { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putBoolean(KEY_NOTIFS_ENABLED, enabled) } }
@@ -152,13 +162,19 @@ object QuoteRepository {
         val allQuotes = getQuotesFromCache(context)
         val expanded = isNotifExpanded(context)
         
+        val pool = mutableListOf<QuoteItem>()
         // Priority 3 is Main Tab (Curated), Priority 2 is Archive Tab (Expanded)
-        val pool = allQuotes.filter { 
+        pool.addAll(allQuotes.filter { 
             it.quote.isNotBlank() && (expanded || it.priority == 3)
+        })
+        
+        if (expanded) {
+            globalQuotesCache?.let { global ->
+                pool.addAll(global.filter { it.quote.isNotBlank() })
+            }
         }
         
         if (pool.isEmpty()) {
-            // Fallback to any non-blank quote if the specific pool is empty
             val fallbackPool = allQuotes.filter { it.quote.isNotBlank() }
             if (fallbackPool.isEmpty()) return null
             
@@ -171,7 +187,8 @@ object QuoteRepository {
         val calendar = java.util.Calendar.getInstance()
         val seed = calendar[java.util.Calendar.YEAR] * 1000L + calendar[java.util.Calendar.DAY_OF_YEAR]
         val random = kotlin.random.Random(seed)
-        return pool[random.nextInt(pool.size)]
+        val distinctPool = pool.distinctBy { it.quote.trim().lowercase() }
+        return distinctPool[random.nextInt(distinctPool.size)]
     }
 
     fun getInitials(author: String): String {
@@ -214,7 +231,6 @@ object QuoteRepository {
         return url.trim()
             .replace("http://", "https://")
             .removeSuffix("/")
-            .lowercase()
     }
 
     private var globalQuotesCache: List<QuoteItem>? = null

@@ -45,16 +45,30 @@ fun QuoteCard(
     }
 
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).graphicsLayer { 
-            val off = ((pager.currentPage - page) + pager.currentPageOffsetFraction).absoluteValue
-            val s = lerp(0.9f, 1f, 1f - off.coerceIn(0f, 1f))
-            scaleX = s
-            scaleY = s
-            alpha = lerp(0.5f, 1f, 1f - off.coerceIn(0f, 1f)) 
-        }, 
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .graphicsLayer { 
+                val pageOffset = ((pager.currentPage - page) + pager.currentPageOffsetFraction)
+                val absOffset = pageOffset.absoluteValue
+                
+                // Scale effect
+                val scale = lerp(0.85f, 1f, 1f - absOffset.coerceIn(0f, 1f))
+                scaleX = scale
+                scaleY = scale
+                
+                // Fade effect
+                alpha = lerp(0.4f, 1f, 1f - absOffset.coerceIn(0f, 1f))
+                
+                // Rotation effect
+                rotationZ = pageOffset * 5f
+                
+                // Elevation-like shadow adjustment via alpha or translation if needed
+                translationY = absOffset * 40f
+            }, 
         colors = CardDefaults.elevatedCardColors(containerColor = CardSurface), 
-        elevation = CardDefaults.elevatedCardElevation(8.dp), 
-        shape = RoundedCornerShape(24.dp)
+        elevation = CardDefaults.elevatedCardElevation(12.dp), 
+        shape = RoundedCornerShape(28.dp)
     ) {
         Column(
             Modifier.padding(32.dp).fillMaxWidth().verticalScroll(rememberScrollState()), 

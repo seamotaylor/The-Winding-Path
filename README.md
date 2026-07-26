@@ -20,6 +20,11 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
 - **Endless Quote Pager**: An infinitely looping shuffled deck of wisdom with haptic feedback and smooth scale/alpha transformations.
 - **Tray Visuals**: Quotes are displayed in premium "Visual Trays" (inspired by editorial card designs) with italics, integrated author signatures, and "Learn More" links.
 
+### 🎨 Personalization & Settings
+- **Dynamic Theming**: Choose from a variety of curated color palettes to match your philosophical mood, updating the app's primary and accent colors instantly.
+- **Reminders Hub**: A dedicated control center to schedule your daily wisdom delivery. Adjust the notification time and filter the content source (Curated vs. Global Library).
+- **Interactive About Section**: Learn more about the app's mission with an integrated animated icon zoom and updated philosophical identity descriptions.
+
 ### 🔔 Smart Notifications
 - **Exact 24-Hour Timing**: High-precision delivery using `AlarmManager`, bypassing system "Doze" delays to hit your target time exactly.
 - **Rich Visuals**: Notifications feature author portraits and `BigTextStyle` for full-quote expansion.
