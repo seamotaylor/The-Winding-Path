@@ -26,8 +26,10 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
 - **Interactive About Section**: Learn more about the app's mission with an integrated animated icon zoom and updated philosophical identity descriptions.
 
 ### 🔔 Smart Notifications
-- **Exact 24-Hour Timing**: High-precision delivery using `AlarmManager`, bypassing system "Doze" delays to hit your target time exactly.
+- **Exact 24-Hour Timing**: High-precision delivery using `AlarmManager`, bypassing system \"Doze\" delays to hit your target time exactly.
+- **Dynamic Theming**: Notifications now dynamically adapt to your selected app theme, using the primary accent color for the notification icon and accents for a cohesive experience.
 - **Rich Visuals**: Notifications feature author portraits and `BigTextStyle` for full-quote expansion.
+- **Localized Resources**: Integrated dedicated string resources for notification headers and summaries, ensuring a consistent and translatable identity in the notification drawer.
 - **Customizable Source**: Toggle between receiving only **Curated Wisdom** or wisdom from the **Full Library** in your daily reminders.
 
 ## 🏗️ Architecture & Stability

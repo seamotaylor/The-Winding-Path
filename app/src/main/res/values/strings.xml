@@ -1,4 +1,6 @@
 <resources>
     <string name="app_name">The Winding Path</string>
     <string name="about_description">The winding path represents the philosophical journey. Our collection features a Curated Anthology of hand-picked, time-tested wisdom alongside an Expanded Library for broader exploration.</string>
+    <string name="notification_header">Today\'s Wisdom</string>
+    <string name="notification_summary">Daily Wisdom</string>
 </resources>

@@ -62,6 +62,7 @@ class AlarmReceiver : BroadcastReceiver() {
     private fun showNotification(context: Context, item: QuoteItem, portrait: Bitmap?) {
         val channelId = "daily_quote_channel"
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val theme = QuoteRepository.getTheme(context)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(channelId, "Daily Wisdom", NotificationManager.IMPORTANCE_DEFAULT)
@@ -73,15 +74,20 @@ class AlarmReceiver : BroadcastReceiver() {
         }
         val pendingIntent = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
+        val quoteText = "“${item.quote.trim()}”"
+        val authorText = "From ${item.author.trim()}"
+
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_stat_wisdom)
-            .setContentTitle("Today's Wisdom")
-            .setContentText("From ${item.author}")
+            .setColor(theme.toColorInt())
+            .setContentTitle(authorText)
+            .setContentText(quoteText)
             .setStyle(NotificationCompat.BigTextStyle()
-                .setBigContentTitle("Wisdom from ${item.author}")
-                .bigText("“${item.quote}”")
-                .setSummaryText("Daily Wisdom"))
+                .setBigContentTitle(authorText)
+                .bigText(quoteText))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 
