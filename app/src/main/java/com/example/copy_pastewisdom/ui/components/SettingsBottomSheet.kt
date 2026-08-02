@@ -39,12 +39,12 @@ fun SettingsBottomSheet(
     sheetState: SheetState,
     notifEnabled: Boolean,
     notifTime: Pair<Int, Int>,
-    notifExpanded: Boolean,
+    isLibraryExpanded: Boolean,
     currentTheme: WisdomTheme,
     onThemeChange: (WisdomTheme) -> Unit,
     onToggleNotifications: (Boolean) -> Unit,
     onShowTimePicker: () -> Unit,
-    onToggleExpandedNotifs: (Boolean) -> Unit
+    onToggleLibraryExpansion: (Boolean) -> Unit
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -53,12 +53,12 @@ fun SettingsBottomSheet(
         SettingsContent(
             notifEnabled = notifEnabled,
             notifTime = notifTime,
-            notifExpanded = notifExpanded,
+            isLibraryExpanded = isLibraryExpanded,
             currentTheme = currentTheme,
             onThemeChange = onThemeChange,
             onToggle = onToggleNotifications,
             onShowTime = onShowTimePicker,
-            onExpandedToggle = onToggleExpandedNotifs
+            onLibraryToggle = onToggleLibraryExpansion
         )
     }
 }
@@ -67,12 +67,12 @@ fun SettingsBottomSheet(
 private fun SettingsContent(
     notifEnabled: Boolean,
     notifTime: Pair<Int, Int>,
-    notifExpanded: Boolean,
+    isLibraryExpanded: Boolean,
     currentTheme: WisdomTheme,
     onThemeChange: (WisdomTheme) -> Unit,
     onToggle: (Boolean) -> Unit,
     onShowTime: () -> Unit,
-    onExpandedToggle: (Boolean) -> Unit
+    onLibraryToggle: (Boolean) -> Unit
 ) {
     var showZoom by remember { mutableStateOf(false) }
     var iconRect by remember { mutableStateOf<Rect?>(null) }
@@ -142,7 +142,7 @@ private fun SettingsContent(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
         NotificationSettingsRow(notifEnabled, onToggle)
-        NotificationContentRow(notifExpanded, onExpandedToggle)
+        NotificationContentRow(isLibraryExpanded, onLibraryToggle)
         TimeSettingsRow(notifTime.first, notifTime.second, onShowTime)
         
         Spacer(Modifier.height(16.dp))

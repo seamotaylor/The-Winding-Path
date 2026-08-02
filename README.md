@@ -10,6 +10,7 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
 - **Smart Deduplication & Priority**: Advanced accent normalization automatically merges authors with different diacritics (e.g., \"Niccolo\" and \"Niccolò\"). A robust multi-tier priority system (Main Sheet > Archive > Global Library) ensures that curated data always takes precedence.
 - **Handpicked Order**: The app intelligently handles multiple rows for the same author, ensuring that the **first** appearance in your curated sheet becomes the default portrait, preserving your editorial intent.
 - **ZenQuotes & Lucky Discovery**: Integration with the ZenQuotes API for "I'm Feeling Lucky" surprises, with a fallback to the local archive.
+- **Google Drive Image Resolution**: Automatic transformation of Google Drive share links into direct image stream URLs for seamless portrait rendering.
 - **Offline-First Architecture**: Caches the entire 30k archive and curated list for a 100% functional experience without an internet connection.
 
 ### 🎡 Navigation & Experience
@@ -17,12 +18,13 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
 - **Animated Zoom Gallery**: Tap any author portrait to enter an immersive, animated full-screen view with pinch-to-zoom, pan support, and a dedicated contrast toggle for optimal legibility across different source images.
 - **Swipeable Browser**: A high-performance navigation system allowing you to swipe between **Authors** and **Topics** effortlessly.
 - **Fast-Scroll Browser**: A dedicated scroll bar with a dynamic **Letter Bubble** that moves with your thumb, allowing you to zip through thousands of authors in seconds.
+- **"Return to Today" FAB**: A smart navigation helper that appears when you've drifted far into the wisdom deck, instantly snapping you back to the daily focus with a single tap.
 - **Endless Quote Pager**: An infinitely looping shuffled deck of wisdom with haptic feedback and smooth scale/alpha transformations.
 - **Tray Visuals**: Quotes are displayed in premium "Visual Trays" (inspired by editorial card designs) with italics, integrated author signatures, and "Learn More" links.
 
 ### 🎨 Personalization & Settings
 - **Dynamic Theming**: Choose from a variety of curated color palettes to match your philosophical mood, updating the app's primary and accent colors instantly.
-- **Reminders Hub**: A dedicated control center to schedule your daily wisdom delivery. Adjust the notification time and filter the content source (Curated vs. Global Library).
+- **Reminders Hub**: A dedicated control center to schedule your daily wisdom delivery. Adjust the notification time and filter the content source (Curated vs. Global Library) via a dedicated "Daily Wisdom Source" toggle.
 - **Interactive About Section**: Learn more about the app's mission with an integrated animated icon zoom and updated philosophical identity descriptions.
 
 ### 🔔 Smart Notifications
@@ -44,11 +46,11 @@ The app follows a modern, decoupled **Clean Architecture** to ensure stability a
 ## 🧪 Testing Suite
 
 Stability is guarded by a dual-layer automated testing strategy using the latest **AndroidX Test** and **Espresso** stacks:
-- **Comprehensive Coverage**: 25+ automated tests verifying the \"fragile\" core logic, UI integrity, and end-to-end journeys.
-- **Unit Tests**: Verifying CSV parsing robustness (handling commas inside quotes), name normalization, and the **Daily Wisdom Determinism**—ensuring the daily quote remains stable throughout the day.
+- **Comprehensive Coverage**: 30+ automated tests verifying the \"fragile\" core logic, UI integrity, and end-to-end journeys.
+- **Unit Tests**: Verifying CSV parsing robustness, priority-based metadata indexing, and the **Daily Wisdom Determinism**—ensuring the daily quote remains stable throughout the day and respects pool expansion settings.
 - **Identity Integrity Tests**: Specialized UI tests that verify the correct rendering of biographies and metadata for key figures (e.g., Confucius, Lao Tzu) within the Author Identity Drawer.
-- **End-to-End UI Tests**: Automated journey testing that verifies the "Golden Path"—launching, loading, drawer interactions, and browser navigation. Optimized with increased timeouts (up to 20s) and robust semantic matching for reliable CI/CD execution across various device speeds.
-- **Robust Infrastructure**: Updated to the latest stable test stack (JUnit 1.3.0, Espresso 3.7.0) with standardized runner configurations and improved wait-until logic for asynchronous content loading.
+- **End-to-End UI Tests**: Automated journey testing that verifies the "Golden Path"—launching, loading, drawer interactions, and browser navigation. Includes specific verifications for **Topic Fast-Scroll** and **Return to Today** logic.
+- **Robust Infrastructure**: Updated to the latest stable test stack (JUnit 1.3.0, Espresso 3.7.0, Test Runner 1.7.0) with increased timeouts (up to 30s) for reliable execution across various device speeds.
 
 ## 🛠️ Technical Stack
 

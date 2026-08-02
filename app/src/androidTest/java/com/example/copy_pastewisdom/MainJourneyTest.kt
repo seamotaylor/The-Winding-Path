@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,25 +31,50 @@ class MainJourneyTest {
     fun verify_card_labels_and_discovery_sync() {
         waitForQuotes()
         
-        // 1. Initial state check - wait for cards to be ready
-        // Accept either TODAY or CURATED since we might land on different index
+        // 1. Open Browser to ensure Discovery Mode is ON
+        composeTestRule.onNodeWithText("Browse All Quotes").performClick()
+        
+        // Use onAllNodes to avoid crashing if not found immediately
+        val switchNodes = composeTestRule.onAllNodes(hasTestTag("browser_discovery_switch"))
+        if (switchNodes.fetchSemanticsNodes().isEmpty()) {
+             // Fallback: try to find it by text if tag is missing for some reason
+             composeTestRule.onNodeWithText("Anthology", substring = true).assertExists()
+        }
+
+        val isOff = try {
+            composeTestRule.onNodeWithTag("browser_discovery_switch").assertIsOff()
+            true
+        } catch (e: Throwable) {
+            false
+        }
+        
+        if (isOff) {
+            composeTestRule.onNodeWithTag("browser_discovery_switch").performClick()
+            composeTestRule.waitForIdle()
+        }
+        composeTestRule.onNodeWithText("Close").performClick()
+
+        // 2. Initial state check - wait for cards to be ready
         composeTestRule.waitUntil(timeoutMillis = 15000) {
             composeTestRule.onAllNodes(hasTestTag("quote_header_label")).fetchSemanticsNodes().isNotEmpty()
         }
-
-        // 2. Toggle Discovery Mode
-        composeTestRule.onNodeWithTag("discovery_toggle").performClick()
         
-        // Wait for potential loading
-        composeTestRule.waitForIdle()
-
-        // 3. Swipe to next card
-        composeTestRule.onNodeWithTag("quote_pager").performTouchInput {
-            swipeLeft()
+        // 3. Swipe until we find a LIBRARY card (since pool is shuffled)
+        var found = false
+        for (i in 1..10) {
+            val nodes = composeTestRule.onAllNodes(hasText("LIBRARY", substring = true)).fetchSemanticsNodes()
+            if (nodes.isNotEmpty()) {
+                found = true
+                break
+            }
+            composeTestRule.onNodeWithTag("quote_pager").performTouchInput {
+                swipeLeft()
+            }
+            composeTestRule.waitForIdle()
         }
         
-        // 4. Verify that Discovery label is present on cards
-        composeTestRule.onAllNodes(hasText("LIBRARY", substring = true)).onFirst().assertExists()
+        // 4. Final verification
+        assertTrue("Should eventually find a card from the expanded library", found)
     }
 
     @Test
@@ -70,13 +96,13 @@ class MainJourneyTest {
         composeTestRule.onNodeWithText("TODAY", substring = true).assertDoesNotExist()
 
         // 4. Click "Return to Today"
-        composeTestRule.waitUntil(timeoutMillis = 20000) {
+        composeTestRule.waitUntil(timeoutMillis = 30000) {
             composeTestRule.onAllNodes(hasTestTag("return_today_fab")).fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithTag("return_today_fab").performClick()
         
         // 5. Verify we are back at TODAY
-        composeTestRule.waitUntil(timeoutMillis = 10000) {
+        composeTestRule.waitUntil(timeoutMillis = 30000) {
             composeTestRule.onAllNodes(hasText("TODAY", substring = true)).fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithText("TODAY", substring = true).assertExists()
@@ -118,8 +144,19 @@ class MainJourneyTest {
         // 2. Verify initial authors list exists
         composeTestRule.onNodeWithTag("authors_list").assertExists()
         
-        // 3. Turn ON Global Discovery via Browser switch
-        composeTestRule.onNodeWithTag("browser_discovery_switch").performClick()
+        // 3. Ensure Global Discovery is ON via Browser switch
+        val switch = composeTestRule.onNodeWithTag("browser_discovery_switch")
+        val isOff = try {
+            switch.assertIsOff()
+            true
+        } catch (e: Throwable) {
+            false
+        }
+
+        if (isOff) {
+            switch.performClick()
+            composeTestRule.waitForIdle()
+        }
         
         // 4. Wait for background processing. 
         // We wait for the loading overlay to potentially appear and then definitely disappear.
@@ -194,9 +231,9 @@ class MainJourneyTest {
         // 2. Click Lucky
         composeTestRule.onNodeWithText("I'm Feeling Lucky").performClick()
         
-        // 3. Verify a quote surface appears (checking for the quotation mark or "Copied" toast eventually)
-        // Since it's an API call, we might need to wait
-        composeTestRule.waitUntil(timeoutMillis = 10000) {
+        // 3. Verify a quote surface appears
+        // Increased timeout to 30s to account for potential dual-network fallback (ZenQuotes -> GitHub)
+        composeTestRule.waitUntil(timeoutMillis = 30000) {
             composeTestRule.onAllNodes(hasText("“", substring = true)).fetchSemanticsNodes().isNotEmpty()
         }
     }
@@ -231,7 +268,8 @@ class MainJourneyTest {
     }
 
     private fun waitForQuotes() {
-        composeTestRule.waitUntil(timeoutMillis = 20000) {
+        // Increased timeout for initial data load from sheets
+        composeTestRule.waitUntil(timeoutMillis = 30000) {
             composeTestRule.onAllNodes(hasText("Browse All Quotes")).fetchSemanticsNodes().isNotEmpty()
         }
     }

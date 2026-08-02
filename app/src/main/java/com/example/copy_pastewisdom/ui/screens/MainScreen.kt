@@ -67,7 +67,7 @@ fun MainScreen(
             sheetState = sheetState,
             notifEnabled = uiState.notificationsEnabled,
             notifTime = uiState.notificationTime,
-            notifExpanded = uiState.notifExpanded,
+            isLibraryExpanded = uiState.isLibraryExpanded,
             currentTheme = currentTheme,
             onThemeChange = onThemeChange,
             onToggleNotifications = { checked ->
@@ -86,7 +86,7 @@ fun MainScreen(
                 }
             },
             onShowTimePicker = { timePicker.show() },
-            onToggleExpandedNotifs = { viewModel.setNotifExpanded(context, it) }
+            onToggleLibraryExpansion = { viewModel.setLibraryExpanded(context, it) }
         )
     }
 

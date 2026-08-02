@@ -30,22 +30,25 @@ class AlarmReceiver : BroadcastReceiver() {
             return
         }
 
-        val dailyWisdom = QuoteRepository.getDailyWisdom(context)
-        if (dailyWisdom != null) {
-            val quotes = QuoteRepository.getQuotesFromCache(context)
-            // We need a coroutine for Coil image loading
-            CoroutineScope(Dispatchers.Main).launch {
-                val portrait = fetchPortrait(context, dailyWisdom, quotes)
-                showNotification(context, dailyWisdom, portrait)
-                // Schedule for tomorrow
-                NotificationScheduler.scheduleDailyNotification(context)
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val dailyWisdom = QuoteRepository.getDailyWisdom(context)
+                if (dailyWisdom != null) {
+                    val portrait = fetchPortrait(context, dailyWisdom)
+                    showNotification(context, dailyWisdom, portrait)
+                    // Schedule for tomorrow
+                    NotificationScheduler.scheduleDailyNotification(context)
+                }
+            } finally {
+                pendingResult.finish()
             }
         }
     }
 
-    private suspend fun fetchPortrait(context: Context, item: QuoteItem, allQuotes: List<QuoteItem>): Bitmap? {
-        val imageUrl = allQuotes.find { it.author == item.author && !it.imageUrl.isNullOrBlank() }?.imageUrl
-            ?: return null
+    private suspend fun fetchPortrait(context: Context, item: QuoteItem): Bitmap? {
+        val imageUrl = QuoteRepository.findAuthorImage(item.author) ?: item.imageUrl
+        if (imageUrl.isNullOrBlank()) return null
             
         return try {
             val loader = ImageLoader(context)

@@ -1,6 +1,7 @@
 package com.example.copy_pastewisdom
 
 import android.content.Context
+import android.util.Log
 import com.example.copy_pastewisdom.data.QuoteItem
 import com.example.copy_pastewisdom.data.QuoteRepository
 import com.example.copy_pastewisdom.data.QuoteState
@@ -25,10 +26,15 @@ class MainViewModelDiscoveryTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         mockkObject(QuoteRepository)
+        mockkStatic(Log::class)
+        every { Log.e(any(), any()) } returns 0
+        every { Log.e(any(), any(), any()) } returns 0
+        every { Log.d(any(), any()) } returns 0
         
         every { QuoteRepository.isNotificationsEnabled(any()) } returns false
         every { QuoteRepository.getNotificationTime(any()) } returns (9 to 0)
-        every { QuoteRepository.isNotifExpanded(any()) } returns false
+        every { QuoteRepository.isLibraryExpanded(any()) } returns false
+        every { QuoteRepository.setLibraryExpanded(any(), any()) } just Runs
         every { QuoteRepository.normalizeAccents(any()) } answers { it.invocation.args[0].toString().lowercase().trim() }
         every { QuoteRepository.findAuthorImage(any()) } returns null
         
@@ -98,7 +104,7 @@ class MainViewModelDiscoveryTest {
         coEvery { QuoteRepository.fetchRawSheetData(any(), any()) } returns "..."
         every { QuoteRepository.parseCsv(any(), 3) } returns listOf(curatedQuote)
         every { QuoteRepository.parseCsv(any(), 2) } returns listOf(archiveQuote)
-        every { QuoteRepository.getDailyWisdom(any()) } returns curatedQuote
+        coEvery { QuoteRepository.getDailyWisdom(any()) } returns curatedQuote
         every { QuoteRepository.clearMetadata() } just Runs
         every { QuoteRepository.saveQuotesToCache(any(), any()) } just Runs
         every { QuoteRepository.indexMetadata(any()) } just Runs

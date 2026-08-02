@@ -27,7 +27,7 @@ data class MainUiState(
     val displayAuthors: List<AuthorDisplayItem> = emptyList(),
     val notificationsEnabled: Boolean = false,
     val notificationTime: Pair<Int, Int> = 7 to 0,
-    val notifExpanded: Boolean = false,
+    val isLibraryExpanded: Boolean = false,
     val browseSelectedItem: QuoteItem? = null,
     
     // Browser State
@@ -55,10 +55,12 @@ class MainViewModel(
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     fun init(context: Context) {
+        val expanded = QuoteRepository.isLibraryExpanded(context)
         _uiState.update { it.copy(
             notificationsEnabled = QuoteRepository.isNotificationsEnabled(context),
             notificationTime = QuoteRepository.getNotificationTime(context),
-            notifExpanded = QuoteRepository.isNotifExpanded(context)
+            isLibraryExpanded = expanded,
+            isDiscoverMode = expanded
         ) }
         fetchQuotes(context)
     }
@@ -128,11 +130,18 @@ class MainViewModel(
         }
     }
 
-    private fun updateShuffledQuotes(context: Context) {
+    private suspend fun updateShuffledQuotes(context: Context) {
         val quotes = getFilteredQuotes(_uiState.value)
-        val displayable = quotes.filter { it.quote.isNotBlank() }
-        val shuffled = displayable.shuffled()
+        val displayable = quotes.filter { it.quote.isNotBlank() }.toMutableList()
+        
         val daily = QuoteRepository.getDailyWisdom(context)
+        
+        // Ensure daily wisdom is always in the list, even if filtered out by mode
+        if (daily != null && displayable.none { it.quote.trim().equals(daily.quote.trim(), ignoreCase = true) }) {
+            displayable.add(daily)
+        }
+
+        val shuffled = displayable.shuffled()
         val dailyIdx = if (daily == null) 0
             else shuffled.indexOfFirst { it.quote.trim().equals(daily.quote.trim(), ignoreCase = true) }.let { if (it == -1) 0 else it }
             
@@ -145,13 +154,16 @@ class MainViewModel(
     fun toggleDiscoverMode(context: Context) {
         viewModelScope.launch {
             val current = _uiState.value.isDiscoverMode
-            if (!current && _uiState.value.globalQuotes.isEmpty()) {
+            val target = !current
+            
+            if (target && _uiState.value.globalQuotes.isEmpty()) {
                 fetchGlobalQuotes(context)
             } else {
                 _uiState.update { state ->
-                    val newState = state.copy(isDiscoverMode = !current)
+                    val newState = state.copy(isDiscoverMode = target, isLibraryExpanded = target)
                     newState.copy(displayAuthors = calculateAuthorsList(newState))
                 }
+                QuoteRepository.setLibraryExpanded(context, target)
                 updateShuffledQuotes(context)
             }
         }
@@ -168,10 +180,12 @@ class MainViewModel(
                         isLoadingGlobal = false,
                         globalQuotes = archive,
                         globalAuthors = authors,
-                        isDiscoverMode = archive.isNotEmpty()
+                        isDiscoverMode = true,
+                        isLibraryExpanded = true
                     )
                     newState.copy(displayAuthors = calculateAuthorsList(newState))
                 }
+                QuoteRepository.setLibraryExpanded(context, true)
                 updateShuffledQuotes(context)
             } catch (e: Throwable) {
                 Log.e("MainViewModel", "Error loading global content: ${e.message}", e)
@@ -233,8 +247,15 @@ class MainViewModel(
         _uiState.update { it.copy(notificationTime = hour to minute) }
     }
 
-    fun setNotifExpanded(context: Context, expanded: Boolean) {
-        _uiState.update { it.copy(notifExpanded = expanded) }
-        QuoteRepository.setNotifExpanded(context, expanded)
+    fun setLibraryExpanded(context: Context, expanded: Boolean) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLibraryExpanded = expanded, isDiscoverMode = expanded) }
+            QuoteRepository.setLibraryExpanded(context, expanded)
+            if (expanded && _uiState.value.globalQuotes.isEmpty()) {
+                fetchGlobalQuotes(context)
+            } else {
+                updateShuffledQuotes(context)
+            }
+        }
     }
 }

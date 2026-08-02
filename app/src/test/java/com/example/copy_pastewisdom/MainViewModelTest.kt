@@ -32,6 +32,7 @@ class MainViewModelTest {
         // Stub mandatory calls for MainViewModel initialization and flow
         every { QuoteRepository.isNotificationsEnabled(any()) } returns false
         every { QuoteRepository.getNotificationTime(any()) } returns Pair(9, 0)
+        every { QuoteRepository.isLibraryExpanded(any()) } returns false
         every { QuoteRepository.clearMetadata() } just Runs
         every { QuoteRepository.parseCsv(any(), any()) } answers {
             val raw = it.invocation.args[0] as String

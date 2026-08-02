@@ -16,8 +16,10 @@ object QuoteRepository {
     private const val KEY_NOTIFS_ENABLED = "notifs_enabled"
     private const val KEY_NOTIF_HOUR = "notif_hour"
     private const val KEY_NOTIF_MINUTE = "notif_minute"
-    private const val KEY_NOTIF_EXPANDED = "notif_expanded"
+    private const val KEY_LIBRARY_EXPANDED = "library_expanded"
     private const val KEY_THEME = "app_theme"
+    private const val KEY_DAILY_QUOTE_JSON = "daily_quote_json"
+    private const val KEY_DAILY_QUOTE_DATE = "daily_quote_date"
 
     private val authorMetadata = mutableMapOf<String, AuthorMetadata>()
 
@@ -150,17 +152,46 @@ object QuoteRepository {
     fun setTheme(context: Context, theme: WisdomTheme) { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putString(KEY_THEME, theme.name) } }
     fun getTheme(context: Context): WisdomTheme { val name = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_THEME, WisdomTheme.Neutral.name); return try { WisdomTheme.valueOf(name!!) } catch (_: Exception) { WisdomTheme.Neutral } }
 
-    fun isNotifExpanded(context: Context): Boolean {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_NOTIF_EXPANDED, false)
+    fun isLibraryExpanded(context: Context): Boolean {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_LIBRARY_EXPANDED, false)
     }
 
-    fun setNotifExpanded(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putBoolean(KEY_NOTIF_EXPANDED, enabled) }
+    fun setLibraryExpanded(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putBoolean(KEY_LIBRARY_EXPANDED, enabled) }
     }
 
-    fun getDailyWisdom(context: Context): QuoteItem? {
+    suspend fun getDailyWisdom(context: Context): QuoteItem? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val calendar = java.util.Calendar.getInstance()
+        val todayStr = "${calendar[java.util.Calendar.YEAR]}-${calendar[java.util.Calendar.DAY_OF_YEAR]}"
+        
+        val cachedDate = prefs.getString(KEY_DAILY_QUOTE_DATE, null)
+        if (cachedDate == todayStr) {
+            val cachedJson = prefs.getString(KEY_DAILY_QUOTE_JSON, null)
+            if (cachedJson != null) {
+                try {
+                    val obj = org.json.JSONObject(cachedJson)
+                    val tagsArr = obj.optJSONArray("tags")
+                    val tags = mutableListOf<String>()
+                    if (tagsArr != null) {
+                        for (i in 0 until tagsArr.length()) tags.add(tagsArr.getString(i))
+                    }
+                    return QuoteItem(
+                        author = obj.getString("author"),
+                        about = obj.getString("about"),
+                        quote = obj.getString("quote"),
+                        imageUrl = obj.optString("imageUrl").let { if (it.isEmpty()) null else it },
+                        tags = tags,
+                        priority = obj.optInt("priority", 0)
+                    )
+                } catch (e: Exception) {
+                    Log.e("QuoteRepository", "Failed to parse cached daily quote", e)
+                }
+            }
+        }
+
         val allQuotes = getQuotesFromCache(context)
-        val expanded = isNotifExpanded(context)
+        val expanded = isLibraryExpanded(context)
         
         val pool = mutableListOf<QuoteItem>()
         // Priority 3 is Main Tab (Curated), Priority 2 is Archive Tab (Expanded)
@@ -169,26 +200,43 @@ object QuoteRepository {
         })
         
         if (expanded) {
-            globalQuotesCache?.let { global ->
-                pool.addAll(global.filter { it.quote.isNotBlank() })
-            }
+            val global = getAllGlobalQuotes()
+            pool.addAll(global.filter { it.quote.isNotBlank() })
         }
         
-        if (pool.isEmpty()) {
+        val daily = if (pool.isEmpty()) {
             val fallbackPool = allQuotes.filter { it.quote.isNotBlank() }
             if (fallbackPool.isEmpty()) return null
             
-            val calendar = java.util.Calendar.getInstance()
             val seed = calendar[java.util.Calendar.YEAR] * 1000L + calendar[java.util.Calendar.DAY_OF_YEAR]
             val random = kotlin.random.Random(seed)
-            return fallbackPool[random.nextInt(fallbackPool.size)]
+            fallbackPool[random.nextInt(fallbackPool.size)]
+        } else {
+            val seed = calendar[java.util.Calendar.YEAR] * 1000L + calendar[java.util.Calendar.DAY_OF_YEAR]
+            val random = kotlin.random.Random(seed)
+            val distinctPool = pool.distinctBy { it.quote.trim().lowercase() }
+            distinctPool[random.nextInt(distinctPool.size)]
+        }
+
+        // Cache the result
+        try {
+            val obj = org.json.JSONObject().apply {
+                put("author", daily.author)
+                put("about", daily.about)
+                put("quote", daily.quote)
+                put("imageUrl", daily.imageUrl ?: "")
+                put("priority", daily.priority)
+                put("tags", org.json.JSONArray(daily.tags))
+            }
+            prefs.edit {
+                putString(KEY_DAILY_QUOTE_DATE, todayStr)
+                putString(KEY_DAILY_QUOTE_JSON, obj.toString())
+            }
+        } catch (e: Exception) {
+            Log.e("QuoteRepository", "Failed to cache daily quote", e)
         }
         
-        val calendar = java.util.Calendar.getInstance()
-        val seed = calendar[java.util.Calendar.YEAR] * 1000L + calendar[java.util.Calendar.DAY_OF_YEAR]
-        val random = kotlin.random.Random(seed)
-        val distinctPool = pool.distinctBy { it.quote.trim().lowercase() }
-        return distinctPool[random.nextInt(distinctPool.size)]
+        return daily
     }
 
     fun getInitials(author: String): String {
