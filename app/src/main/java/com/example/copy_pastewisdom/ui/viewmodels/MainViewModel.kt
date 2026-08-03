@@ -63,6 +63,9 @@ class MainViewModel(
             isDiscoverMode = expanded
         ) }
         fetchQuotes(context)
+        if (expanded) {
+            fetchGlobalQuotes(context)
+        }
     }
 
     fun fetchQuotes(context: Context) {

@@ -114,4 +114,37 @@ class MainViewModelDiscoveryTest {
         assertEquals(1, viewModel.uiState.value.shuffledQuotes.size)
         assertEquals("Q1", viewModel.uiState.value.shuffledQuotes[0].quote)
     }
+
+    @Test
+    fun `init should fetch global quotes if library is expanded`() = runTest {
+        val mockContext = mockk<Context>(relaxed = true)
+        val curatedQuote = QuoteItem("Curated Author", "", "Quote 1", priority = 3)
+        val globalQuote = QuoteItem("Global Author", "", "Quote 3", priority = 1)
+        
+        every { QuoteRepository.isLibraryExpanded(any()) } returns true
+        coEvery { QuoteRepository.getAllGlobalQuotes() } returns listOf(globalQuote)
+        coEvery { QuoteRepository.getAllGlobalAuthors() } returns listOf("Global Author" to 1)
+        
+        // Mock fetchQuotes dependencies
+        coEvery { QuoteRepository.fetchRawSheetData(any(), any()) } returns "Author,Bio,Quote\nCurated Author,Bio,Quote 1"
+        every { QuoteRepository.parseCsv(any(), 3) } returns listOf(curatedQuote)
+        every { QuoteRepository.parseCsv(any(), 2) } returns emptyList()
+        every { QuoteRepository.clearMetadata() } just Runs
+        every { QuoteRepository.saveQuotesToCache(any(), any()) } just Runs
+        every { QuoteRepository.indexMetadata(any()) } just Runs
+        coEvery { QuoteRepository.getDailyWisdom(any()) } returns curatedQuote
+
+        viewModel.init(mockContext)
+        
+        // Advance time or wait for state updates if needed, though Unconfined should handle it
+        advanceUntilIdle()
+        
+        assertTrue("Discover mode should be on", viewModel.uiState.value.isDiscoverMode)
+        assertTrue("Global quotes should be loaded", viewModel.uiState.value.globalQuotes.contains(globalQuote))
+        
+        val authors = viewModel.uiState.value.displayAuthors
+        val names = authors.map { it.name }.toSet()
+        assertTrue("Curated author should be in display list", names.contains("Curated Author"))
+        assertTrue("Global author should be in display list", names.contains("Global Author"))
+    }
 }

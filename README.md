@@ -5,7 +5,7 @@ A personal daily wisdom app built with **Kotlin** and **Jetpack Compose**. This 
 ## 🚀 Key Features
 
 ### 🏮 Content & Curation
-- **The Expanded Library**: Seamlessly switch between your **Curated Anthology** and the massive 30,000+ quote global library with a dynamic mode indicator.
+- **The Expanded Library**: Seamlessly switch between your **Curated Anthology** and the massive 30,000+ quote global library with a dynamic mode indicator and **session persistence**, ensuring your discovery preferences are remembered across app launches.
 - **Dynamic Google Sheets Sync**: Real-time synchronization with a published CSV backend, featuring manual refresh and intelligent cache-busting.
 - **Smart Deduplication & Priority**: Advanced accent normalization automatically merges authors with different diacritics (e.g., \"Niccolo\" and \"Niccolò\"). A robust multi-tier priority system (Main Sheet > Archive > Global Library) ensures that curated data always takes precedence.
 - **Handpicked Order**: The app intelligently handles multiple rows for the same author, ensuring that the **first** appearance in your curated sheet becomes the default portrait, preserving your editorial intent.
@@ -47,7 +47,7 @@ The app follows a modern, decoupled **Clean Architecture** to ensure stability a
 
 Stability is guarded by a dual-layer automated testing strategy using the latest **AndroidX Test** and **Espresso** stacks:
 - **Comprehensive Coverage**: 30+ automated tests verifying the \"fragile\" core logic, UI integrity, and end-to-end journeys.
-- **Unit Tests**: Verifying CSV parsing robustness, priority-based metadata indexing, and the **Daily Wisdom Determinism**—ensuring the daily quote remains stable throughout the day and respects pool expansion settings.
+- **Unit Tests**: Verifying CSV parsing robustness, priority-based metadata indexing, and the **Daily Wisdom Determinism**—ensuring the daily quote remains stable throughout the day and respects pool expansion settings (including verification of global content loading during initialization).
 - **Identity Integrity Tests**: Specialized UI tests that verify the correct rendering of biographies and metadata for key figures (e.g., Confucius, Lao Tzu) within the Author Identity Drawer.
 - **End-to-End UI Tests**: Automated journey testing that verifies the "Golden Path"—launching, loading, drawer interactions, and browser navigation. Includes specific verifications for **Topic Fast-Scroll** and **Return to Today** logic.
 - **Robust Infrastructure**: Updated to the latest stable test stack (JUnit 1.3.0, Espresso 3.7.0, Test Runner 1.7.0) with increased timeouts (up to 30s) for reliable execution across various device speeds.
